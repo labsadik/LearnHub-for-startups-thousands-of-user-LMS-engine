@@ -20,9 +20,7 @@ import {
   Upload,
   Camera,
   Shield,
-  Mail,
   AlertTriangle,
-  Lock,
   CheckCircle2,
 } from 'lucide-react';
 
@@ -38,8 +36,6 @@ const Profile = () => {
   const [bio, setBio] = useState('');
   const [phone, setPhone] = useState('');
   const [avatar, setAvatar] = useState('');
-
-  const [newEmail, setNewEmail] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -164,40 +160,6 @@ const Profile = () => {
       toast.error(error.message, { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> });
     } else {
       toast.success('Profile updated successfully', { icon: <CheckCircle2 className="h-4 w-4 text-green-500" /> });
-    }
-  };
-
-  // Change Email
-  const updateEmail = async () => {
-    if (!newEmail) {
-      toast.error('Enter new email address', { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> });
-      return;
-    }
-
-    const { error } = await supabase.auth.updateUser({
-      email: newEmail,
-    });
-
-    if (error) {
-      toast.error(error.message, { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> });
-    } else {
-      toast.success('Verification email sent. Please check your inbox.', { icon: <CheckCircle2 className="h-4 w-4 text-green-500" /> });
-      setNewEmail('');
-    }
-  };
-
-  // Reset Password
-  const resetPassword = async () => {
-    if (!user?.email) return;
-
-    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-      redirectTo: window.location.origin + '/reset-password',
-    });
-
-    if (error) {
-      toast.error(error.message, { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> });
-    } else {
-      toast.success('Password reset link sent to your email', { icon: <CheckCircle2 className="h-4 w-4 text-green-500" /> });
     }
   };
 
@@ -359,54 +321,6 @@ const Profile = () => {
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
-          </div>
-        </Card>
-      </div>
-
-      {/* BOTTOM SECTION: Security & Policies */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-        
-        {/* Change Email */}
-        <Card className="p-6 shadow-sm hover:shadow-md transition-shadow bg-card">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
-              <Mail className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">Change Email</h2>
-              <p className="text-xs text-muted-foreground">Requires verification.</p>
-            </div>
-          </div>
-          
-          <div className="space-y-3">
-            <Input
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              placeholder="newemail@example.com"
-              className="h-11"
-            />
-            <Button onClick={updateEmail} variant="outline" className="w-full h-11">
-              Send Verification Link
-            </Button>
-          </div>
-        </Card>
-
-        {/* Security */}
-        <Card className="p-6 shadow-sm hover:shadow-md transition-shadow bg-card">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500">
-              <Lock className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">Security</h2>
-              <p className="text-xs text-muted-foreground">Manage your password.</p>
-            </div>
-          </div>
-          
-          <div className="pt-2">
-            <Button onClick={resetPassword} variant="outline" className="w-full h-11">
-              Send Password Reset Link
-            </Button>
           </div>
         </Card>
       </div>

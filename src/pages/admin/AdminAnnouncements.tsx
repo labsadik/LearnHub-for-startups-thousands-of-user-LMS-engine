@@ -7,7 +7,20 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Trash2, Plus, Megaphone, Search, AlertTriangle, ImageOff } from 'lucide-react';
+import { 
+  Trash2, 
+  Plus, 
+  Megaphone, 
+  Search, 
+  AlertTriangle, 
+  Pencil, 
+  FolderOpen, 
+  FolderClosed, 
+  ChevronDown,
+  ChevronUp,
+  X,
+  Send
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -16,10 +29,17 @@ const emptyForm = { course_id: '', title: '', body: '', image_url: '' };
 const AdminAnnouncements = () => {
   const [courses, setCourses] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
+  
+  // Form State
   const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
-  const [filterCourse, setFilterCourse] = useState('all');
+  
+  // Folder State
+  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   
   // Delete Dialog State
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: string | null; title: string }>({ open: false, id: null, title: '' });
@@ -36,27 +56,98 @@ const AdminAnnouncements = () => {
 
   useEffect(() => { load(); }, []);
 
+  // Group items by course ID
+  const filteredItems = useMemo(() => {
+    return items.filter(a => {
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const hay = `${a.title} ${a.body || ''} ${a.courses?.title || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [items, search]);
+
+  const filteredGroups = useMemo(() => {
+    const groups: { [key: string]: any[] } = {};
+    filteredItems.forEach(item => {
+      const id = item.course_id || 'uncategorized';
+      if (!groups[id]) groups[id] = [];
+      groups[id].push(item);
+    });
+    return groups;
+  }, [filteredItems]);
+
+  const toggleFolder = (id: string) => {
+    const newOpen = new Set(openFolders);
+    if (newOpen.has(id)) newOpen.delete(id);
+    else newOpen.add(id);
+    setOpenFolders(newOpen);
+  };
+
+  // --- Editor Logic ---
+  const openCreateModal = () => {
+    setForm(emptyForm);
+    setEditingId(null);
+    setIsEditorOpen(true);
+  };
+
+  const openEditModal = (item: any) => {
+    setForm({
+      course_id: item.course_id,
+      title: item.title,
+      body: item.body || '',
+      image_url: item.image_url || '',
+    });
+    setEditingId(item.id);
+    setIsEditorOpen(true);
+  };
+
+  const closeEditorModal = () => {
+    setIsEditorOpen(false);
+    setForm(emptyForm);
+    setEditingId(null);
+  };
+
   const save = async () => {
     if (!form.course_id) { toast.error('Please select a course', { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> }); return; }
     if (!form.title.trim()) { toast.error('Title is required', { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> }); return; }
     
     setSaving(true);
     try {
-      const { error } = await supabase.from('announcements').insert({
-        course_id: form.course_id,
-        title: form.title.trim(),
-        body: form.body?.trim() || null,
-        image_url: form.image_url?.trim() || null,
-      });
-      if (error) { toast.error(error.message, { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> }); return; }
-      toast.success('Announcement posted successfully');
-      setForm(emptyForm);
+      if (editingId) {
+        // Update
+        const { error } = await supabase.from('announcements').update({
+          course_id: form.course_id,
+          title: form.title.trim(),
+          body: form.body?.trim() || null,
+          image_url: form.image_url?.trim() || null,
+        }).eq('id', editingId);
+        
+        if (error) throw error;
+        toast.success('Announcement updated successfully');
+      } else {
+        // Create
+        const { error } = await supabase.from('announcements').insert({
+          course_id: form.course_id,
+          title: form.title.trim(),
+          body: form.body?.trim() || null,
+          image_url: form.image_url?.trim() || null,
+        });
+        if (error) throw error;
+        toast.success('Announcement posted successfully');
+      }
+      
+      closeEditorModal();
       load();
+    } catch (err: any) {
+      toast.error(err.message, { icon: <AlertTriangle className="h-4 w-4 text-red-500" /> });
     } finally {
       setSaving(false);
     }
   };
 
+  // --- Delete Logic ---
   const openDeleteDialog = (id: string, title: string) => {
     setDeleteDialog({ open: true, id, title });
   };
@@ -77,178 +168,198 @@ const AdminAnnouncements = () => {
     }
   };
 
-  const filtered = useMemo(() => items.filter(a => {
-    if (filterCourse !== 'all' && a.course_id !== filterCourse) return false;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const hay = `${a.title} ${a.body || ''} ${a.courses?.title || ''}`.toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  }), [items, filterCourse, search]);
-
   return (
-    // Fixed Admin Layout Wrapper
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden pb-20 relative">
       
       {/* Header */}
-      <div className="shrink-0 mb-4">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Megaphone className="w-6 h-6 text-primary" /> Announcements
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1">Post real-time updates to enrolled students per course.</p>
+      <div className="shrink-0 mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4 px-1">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Megaphone className="w-6 h-6 text-primary" /> Announcements
+          </h1>
+          <p className="text-xs text-muted-foreground mt-1">Manage course updates.</p>
+        </div>
+        
+        {/* Search Bar */}
+        <div className="relative w-full sm:w-64">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input 
+            value={search} 
+            onChange={(e) => setSearch(e.target.value)} 
+            placeholder="Search..." 
+            className="pl-9 h-9 bg-background text-xs w-full"
+          />
+        </div>
       </div>
 
-      {/* Create Form Section */}
-      <Card className="shrink-0 p-4 sm:p-5 bg-card border-border shadow-sm mb-4 space-y-4">
-        <h2 className="text-sm font-bold flex items-center gap-2">
-          <Plus className="w-4 h-4 text-primary" /> Post New Announcement
-        </h2>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2">
-            <Label>Course <span className="text-destructive">*</span></Label>
-            <Select value={form.course_id} onValueChange={(v) => setForm({ ...form, course_id: v })}>
-              <SelectTrigger className="mt-1.5 bg-background"><SelectValue placeholder="Select target course" /></SelectTrigger>
-              <SelectContent className="bg-card">
-                {courses.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="sm:col-span-2">
-            <Label>Title <span className="text-destructive">*</span></Label>
-            <Input 
-              value={form.title} 
-              onChange={(e) => setForm({ ...form, title: e.target.value })} 
-              maxLength={200} 
-              className="mt-1.5 bg-background"
-              placeholder="e.g., Welcome to the batch!"
-            />
-          </div>
-          
-          <div className="sm:col-span-2">
-            <Label>Body Text</Label>
-            <Textarea 
-              value={form.body} 
-              onChange={(e) => setForm({ ...form, body: e.target.value })} 
-              maxLength={2000} 
-              rows={3} 
-              className="mt-1.5 bg-background resize-none"
-              placeholder="Write your announcement details here..."
-            />
-          </div>
-
-          <div className="sm:col-span-2">
-            <Label>Image URL (Optional)</Label>
-            <Input 
-              value={form.image_url} 
-              onChange={(e) => setForm({ ...form, image_url: e.target.value })} 
-              placeholder="https://example.com/image.png" 
-              maxLength={500}
-              className="mt-1.5 bg-background"
-            />
-          </div>
+      {/* History / Folders Section */}
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-4">
+        <div className="flex items-center justify-between mb-1 px-1">
+          <h3 className="text-sm font-bold text-muted-foreground">Course History</h3>
+          <span className="text-xs text-muted-foreground">{filteredItems.length} Total</span>
         </div>
 
-        {form.image_url && (
-          <div className="relative w-full max-w-xs h-40 bg-muted rounded-lg border border-border overflow-hidden">
-            <img src={form.image_url} alt="preview" className="w-full h-full object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            <ImageOff className="absolute inset-0 m-auto w-8 h-8 text-muted-foreground hidden" id="img-fallback" />
-          </div>
-        )}
-
-        <Button onClick={save} disabled={saving} className="w-full sm:w-auto">
-          {saving ? 'Posting…' : <><Plus className="w-4 h-4 mr-1" /> Post Announcement</>}
-        </Button>
-      </Card>
-
-      {/* Filters Section */}
-      <Card className="shrink-0 p-3 bg-card border-border shadow-sm mb-4">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input 
-              value={search} 
-              onChange={(e) => setSearch(e.target.value)} 
-              placeholder="Search title or content…" 
-              className="pl-9 h-9 bg-background text-xs"
-            />
-          </div>
-          <Select value={filterCourse} onValueChange={setFilterCourse}>
-            <SelectTrigger className="h-9 bg-background text-xs"><SelectValue placeholder="Filter by course" /></SelectTrigger>
-            <SelectContent className="bg-card">
-              <SelectItem value="all">All Courses</SelectItem>
-              {courses.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </Card>
-
-      {/* Scrollable Announcements List */}
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-sm font-bold text-muted-foreground">History ({filtered.length})</h3>
-        </div>
-
-        {filtered.length === 0 && (
+        {filteredItems.length === 0 && (
           <div className="text-center py-12 border border-dashed rounded-lg text-muted-foreground text-sm">
             No announcements found.
           </div>
         )}
 
-        {filtered.map(a => (
-          <Card key={a.id} className="p-4 bg-card border-border shadow-sm hover:shadow-md transition-shadow group">
-            <div className="flex items-start gap-4">
-              {/* Image */}
-              {a.image_url ? (
-                <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted shrink-0 border border-border">
-                  <img src={a.image_url} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        {/* Render Folders */}
+        {courses.map((course) => {
+          const courseItems = filteredGroups[course.id] || [];
+          if (courseItems.length === 0) return null;
+          const isOpen = openFolders.has(course.id);
+
+          return (
+            <Card key={course.id} className="bg-card border-border shadow-sm overflow-hidden">
+              {/* Folder Header */}
+              <button 
+                onClick={() => toggleFolder(course.id)}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors text-left"
+              >
+                <div className="flex items-center gap-3">
+                  {isOpen ? <FolderOpen className="w-5 h-5 text-primary" /> : <FolderClosed className="w-5 h-5 text-muted-foreground" />}
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-sm">{course.title}</span>
+                    <span className="text-[10px] text-muted-foreground">{courseItems.length} item{courseItems.length !== 1 ? 's' : ''}</span>
+                  </div>
                 </div>
-              ) : (
-                <div className="w-20 h-20 rounded-lg bg-muted shrink-0 flex items-center justify-center border border-border">
-                  <Megaphone className="w-6 h-6 text-muted-foreground/30" />
+                <div className="flex items-center gap-3">
+                  <span className="bg-primary/10 text-primary text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {courseItems.length}
+                  </span>
+                  {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                </div>
+              </button>
+
+              {/* Folder Content */}
+              {isOpen && (
+                <div className="border-t border-border bg-muted/20 p-3 space-y-3 animate-in slide-in-from-top-2 duration-200">
+                  {courseItems.map((a) => (
+                    <div key={a.id} className="group bg-card border border-border rounded-lg p-3 hover:shadow-md transition-shadow flex gap-3 relative">
+                      {/* Thumbnail */}
+                      <div className="w-16 h-16 shrink-0 rounded bg-muted border border-border overflow-hidden">
+                        {a.image_url ? (
+                          <img src={a.image_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-muted-foreground/30">
+                            <Megaphone className="w-5 h-5" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start gap-2">
+                          <h4 className="font-semibold text-sm truncate pr-2">{a.title}</h4>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mb-1">{formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}</p>
+                        {a.body && (
+                          <p className="text-xs text-muted-foreground line-clamp-2 whitespace-pre-wrap">
+                            {a.body}
+                          </p>
+                        )}
+                      </div>
+                      
+                      {/* Hover Actions */}
+                      <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-card/80 backdrop-blur rounded p-1 border shadow-sm">
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary" onClick={() => openEditModal(a)}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => openDeleteDialog(a.id, a.title)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h4 className="font-semibold text-sm truncate">{a.title}</h4>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                        {a.courses?.title || 'Unknown Course'}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <Button 
-                    size="sm" 
-                    variant="ghost" 
-                    className="h-8 w-8 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 hover:text-destructive"
-                    onClick={() => openDeleteDialog(a.id, a.title)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-                
-                {a.body && (
-                  <div className="text-xs mt-2 text-muted-foreground line-clamp-3 whitespace-pre-wrap leading-relaxed">
-                    {a.body}
-                  </div>
-                )}
-              </div>
-            </div>
-          </Card>
-        ))}
-        
-        {/* Bottom Spacing */}
-        <div className="h-4" />
+            </Card>
+          );
+        })}
       </div>
+
+      {/* --- FLOATING ACTION BUTTON (POP STYLE) --- */}
+      <Button 
+        onClick={openCreateModal}
+        className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-2xl hover:scale-110 transition-transform z-40 flex items-center justify-center bg-primary text-primary-foreground"
+        size="icon"
+      >
+        <Plus className="w-6 h-6" />
+      </Button>
+
+      {/* --- CREATE / EDIT DIALOG --- */}
+      <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
+        <DialogContent className="bg-card sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {editingId ? (
+                <><Pencil className="w-5 h-5 text-primary" /> Edit Announcement</>
+              ) : (
+                <><Send className="w-5 h-5 text-primary" /> Send New Announcement</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {editingId ? "Update the details below." : "Fill in the details to broadcast to students."}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Course <span className="text-destructive">*</span></Label>
+              <Select value={form.course_id} onValueChange={(v) => setForm({ ...form, course_id: v })}>
+                <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
+                <SelectContent>
+                  {courses.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Title <span className="text-destructive">*</span></Label>
+              <Input 
+                value={form.title} 
+                onChange={(e) => setForm({ ...form, title: e.target.value })} 
+                placeholder="e.g., Exam Schedule Update"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Body</Label>
+              <Textarea 
+                value={form.body} 
+                onChange={(e) => setForm({ ...form, body: e.target.value })} 
+                rows={4} 
+                className="resize-none"
+                placeholder="Message details..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Image URL</Label>
+              <Input 
+                value={form.image_url} 
+                onChange={(e) => setForm({ ...form, image_url: e.target.value })} 
+                placeholder="https://..."
+              />
+            </div>
+
+            {form.image_url && (
+              <div className="w-full h-32 bg-muted rounded-lg overflow-hidden border">
+                <img src={form.image_url} alt="Preview" className="w-full h-full object-contain" />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeEditorModal} disabled={saving}>Cancel</Button>
+            <Button onClick={save} disabled={saving}>
+              {saving ? 'Saving...' : editingId ? 'Update' : 'Send Announcement'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* --- DELETE CONFIRMATION DIALOG --- */}
       <Dialog open={deleteDialog.open} onOpenChange={(v) => setDeleteDialog({ ...deleteDialog, open: v })}>
@@ -259,8 +370,7 @@ const AdminAnnouncements = () => {
               Delete Announcement
             </DialogTitle>
             <DialogDescription>
-              Are you sure you want to permanently delete: <span className="font-bold text-foreground">"{deleteDialog.title}"</span>? 
-              This action cannot be undone.
+              Are you sure you want to delete <span className="font-bold text-foreground">"{deleteDialog.title}"</span>? This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

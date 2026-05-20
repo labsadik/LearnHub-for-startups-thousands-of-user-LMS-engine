@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Loader2, Play, BookOpen, Tag, CheckCircle2, ArrowRight, Lock, Clock, Flame, Share2, Copy, Check } from 'lucide-react';
+import { Loader2, Play, BookOpen, Tag, CheckCircle2, ArrowRight, Lock, Clock, Flame, Share2, Copy, Check, AlertTriangle } from 'lucide-react';
 import {
   Accordion,
   AccordionContent,
@@ -91,6 +91,9 @@ const CourseDetail = () => {
   const [enrolled, setEnrolled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [verifyingPayment, setVerifyingPayment] = useState(false);
+  
+  // --- NEW: Profile State ---
+  const [profile, setProfile] = useState<any>(null);
 
   const [promo, setPromo] = useState('');
   const [discount, setDiscount] = useState<{ amount: number; code: string; promocode_id: string } | null>(null);
@@ -150,9 +153,16 @@ const CourseDetail = () => {
       const { data: subjects } = await supabase.from('subjects').select('id, name, position, chapters(id, name, position, parts(id, name, video_id, notes_url, duration, position, is_preview))').eq('course_id', c.id).order('position');
       const sorted = (subjects || []).map((s: any) => ({ ...s, chapters: (s.chapters || []).sort((a: any, b: any) => a.position - b.position).map((ch: any) => ({ ...ch, parts: (ch.parts || []).sort((a: any, b: any) => a.position - b.position) })) }));
       setTree(sorted);
+      
       if (user) {
-        const { data: en } = await supabase.from('enrollments').select('id').eq('user_id', user.id).eq('course_id', c.id).maybeSingle();
-        if (en) setEnrolled(true);
+        // --- UPDATED: Fetch Profile Data alongside Enrollment ---
+        const [enRes, profRes] = await Promise.all([
+          supabase.from('enrollments').select('id').eq('user_id', user.id).eq('course_id', c.id).maybeSingle(),
+          supabase.from('profiles').select('*').eq('user_id', user.id).single()
+        ]);
+        
+        if (enRes.data) setEnrolled(true);
+        if (profRes.data) setProfile(profRes.data);
       }
       setLoading(false);
     };
@@ -259,9 +269,46 @@ const CourseDetail = () => {
     toast.success(`Saved ${formatPriceINR(Math.min(amount, course.price_inr))}!`);
   };
 
+  // ─── UPDATED HANDLE ENROLL WITH PROFILE VALIDATION ───
   const handleEnroll = async () => {
-    if (!user) { nav('/auth'); return; }
-    if (!course?.id) { toast.error('Course information is missing.'); return; }
+    if (!user) { 
+      nav('/auth'); 
+      return; 
+    }
+
+    if (!course?.id) { 
+      toast.error('Course information is missing.'); 
+      return; 
+    }
+
+    // --- PROFILE VALIDATION LOGIC ---
+    const missingFields: string[] = [];
+
+    // 1. Check Email (from Auth)
+    if (!user?.email) missingFields.push("Email Address");
+
+    // 2. Check Name & Phone (from Profile)
+    if (!profile?.display_name || profile.display_name.trim() === "") {
+      missingFields.push("Display Name");
+    }
+    if (!profile?.phone || profile.phone.trim() === "") {
+      missingFields.push("Phone Number");
+    }
+
+    // If anything is missing, block purchase
+    if (missingFields.length > 0) {
+      toast.error('Profile Incomplete', {
+        description: `Please complete your profile before buying. Missing: ${missingFields.join(', ')}.`,
+        icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+        action: {
+          label: "Complete Profile",
+          onClick: () => nav('/profile'),
+        },
+      });
+      return;
+    }
+    // ------------------------------------
+
     setEnrolling(true);
     try {
       const { data, error } = await supabase.functions.invoke('create-checkout-session', {

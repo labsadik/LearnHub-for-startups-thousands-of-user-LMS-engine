@@ -92,7 +92,6 @@ const CourseDetail = () => {
   const [loading, setLoading] = useState(true);
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   
-  // --- NEW: Profile State ---
   const [profile, setProfile] = useState<any>(null);
 
   const [promo, setPromo] = useState('');
@@ -155,7 +154,6 @@ const CourseDetail = () => {
       setTree(sorted);
       
       if (user) {
-        // --- UPDATED: Fetch Profile Data alongside Enrollment ---
         const [enRes, profRes] = await Promise.all([
           supabase.from('enrollments').select('id').eq('user_id', user.id).eq('course_id', c.id).maybeSingle(),
           supabase.from('profiles').select('*').eq('user_id', user.id).single()
@@ -222,7 +220,6 @@ const CourseDetail = () => {
     return () => { cancelled = true; };
   }, [slug, user, course?.id]);
 
-  // ─── UPDATED APPLY PROMO FUNCTION ───
   const applyPromo = async () => {
     if (!promo.trim()) return;
     if (!user) {
@@ -231,14 +228,12 @@ const CourseDetail = () => {
       return;
     }
     
-    // 1. Validate Promocode
     const { data, error } = await supabase.from('promocodes').select('*').eq('code', promo.trim().toUpperCase()).eq('is_active', true).maybeSingle();
     if (error || !data) { toast.error('Invalid code'); return; }
     if (data.expires_at && new Date(data.expires_at) < new Date()) { toast.error('Code expired'); return; }
     if (data.max_uses && data.uses_count >= data.max_uses) { toast.error('Code exhausted'); return; }
     if (data.course_id && data.course_id !== course.id) { toast.error('Code not valid for this course'); return; }
 
-    // 2. Check if already applied to prevent duplicate database entries
     const { data: existingRedemption } = await supabase
       .from('promocode_redemptions')
       .select('id')
@@ -247,7 +242,6 @@ const CourseDetail = () => {
       .eq('promocode_id', data.id)
       .maybeSingle();
 
-    // 3. Save to Database BEFORE buying (Inserts user_id, course_id, promocode_id, and auto-generated redeemed_at)
     if (!existingRedemption) {
       const { error: redeemError } = await supabase.from('promocode_redemptions').insert({
         user_id: user.id,
@@ -260,16 +254,13 @@ const CourseDetail = () => {
         toast.error('Could not apply code. Please try again.');
         return;
       }
-      // Note: The SQL Trigger you added will AUTOMATICALLY increment uses_count in promocodes table now!
     }
 
-    // 4. Apply discount visually
     const amount = data.discount_type === 'percent' ? Math.round((course.price_inr * data.discount_value) / 100) : data.discount_value;
     setDiscount({ amount: Math.min(amount, course.price_inr), code: data.code, promocode_id: data.id });
     toast.success(`Saved ${formatPriceINR(Math.min(amount, course.price_inr))}!`);
   };
 
-  // ─── UPDATED HANDLE ENROLL WITH PROFILE VALIDATION ───
   const handleEnroll = async () => {
     if (!user) { 
       nav('/auth'); 
@@ -281,21 +272,12 @@ const CourseDetail = () => {
       return; 
     }
 
-    // --- PROFILE VALIDATION LOGIC ---
     const missingFields: string[] = [];
 
-    // 1. Check Email (from Auth)
     if (!user?.email) missingFields.push("Email Address");
+    if (!profile?.display_name || profile.display_name.trim() === "") missingFields.push("Display Name");
+    if (!profile?.phone || profile.phone.trim() === "") missingFields.push("Phone Number");
 
-    // 2. Check Name & Phone (from Profile)
-    if (!profile?.display_name || profile.display_name.trim() === "") {
-      missingFields.push("Display Name");
-    }
-    if (!profile?.phone || profile.phone.trim() === "") {
-      missingFields.push("Phone Number");
-    }
-
-    // If anything is missing, block purchase
     if (missingFields.length > 0) {
       toast.error('Profile Incomplete', {
         description: `Please complete your profile before buying. Missing: ${missingFields.join(', ')}.`,
@@ -307,7 +289,6 @@ const CourseDetail = () => {
       });
       return;
     }
-    // ------------------------------------
 
     setEnrolling(true);
     try {
@@ -334,13 +315,19 @@ const CourseDetail = () => {
     } catch (err: any) { toast.error(err.message || 'Error.'); } finally { setEnrolling(false); }
   };
 
-  const handleLockedClick = () => {
-    if (!user) { nav('/auth'); toast.info('Please login to access lectures'); return; }
-    if (enrolled) { nav(`/learn/${course.slug}`); return; }
-    toast.info('Please enroll to access this lecture');
+  const handleLockedClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!user) { 
+      nav('/auth'); 
+      toast.info('Please login to access locked lectures'); 
+      return; 
+    }
+    if (!enrolled) { 
+      toast.info('Please enroll to access this lecture'); 
+      return; 
+    }
   };
 
-  // ─── SHARE LOGIC ───
   const courseUrl = `${window.location.origin}/courses/${course?.slug}`;
   const shareText = course ? `Check out this course: ${course.title} 🔥` : '';
 
@@ -425,44 +412,66 @@ const CourseDetail = () => {
               ) : (
                 <Accordion type="multiple" defaultValue={[tree[0]?.id]} className="space-y-3">
                   {tree.map((subject: any, sIdx: number) => (
-                    <AccordionItem key={subject.id} value={subject.id} className="border border-border/60 rounded-xl bg-card overflow-hidden shadow-sm transition-shadow hover:shadow-md px-0">
-                      <AccordionTrigger className="hover:no-underline px-5 py-4 hover:bg-muted/20 transition-colors">
+                    <AccordionItem key={subject.id} value={subject.id} className="border rounded-xl bg-card overflow-hidden shadow-sm">
+                      <AccordionTrigger className="hover:no-underline px-5 py-4 hover:bg-muted/30 transition-colors">
                         <span className="flex items-center gap-3 text-left font-semibold">
                           <span className="flex w-8 h-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary text-sm font-bold">{sIdx + 1}</span>
                           {subject.name}
                         </span>
                       </AccordionTrigger>
-                      <AccordionContent className="pb-4 px-5">
-                        <Accordion type="multiple" className="space-y-1 ml-4 border-l-2 border-border/40 pl-4">
+                      <AccordionContent className="pb-4 px-2 sm:px-4">
+                        <Accordion type="multiple" className="space-y-1">
                           {subject.chapters.map((ch: any) => (
                             <AccordionItem key={ch.id} value={ch.id} className="border-0">
-                              <AccordionTrigger className="text-sm font-medium hover:no-underline py-2 text-foreground/80 hover:text-foreground">
+                              <AccordionTrigger className="text-sm font-medium hover:no-underline py-2.5 text-foreground/80 hover:text-foreground px-2">
                                 {ch.name}
                               </AccordionTrigger>
                               <AccordionContent>
-                                <ul className="space-y-2 ml-2">
+                                <ul className="space-y-0.5 ml-1 mt-1">
                                   {ch.parts.map((p: any) => {
-                                    const isFree = p.is_preview;
-                                    const lectureElement = (
-                                      <div className={`group/lec flex items-center justify-between gap-3 text-sm py-2.5 px-3 rounded-lg border transition-all duration-200 ${isFree ? 'border-primary/20 hover:border-primary/40 hover:bg-primary/5 cursor-pointer' : 'border-border/50 bg-muted/20 cursor-pointer hover:bg-muted/40 hover:border-border'}`}>
-                                        <span className="flex items-center gap-2.5 min-w-0 flex-1">
-                                          <div className={`flex w-7 h-7 shrink-0 items-center justify-center rounded-md transition-colors ${isFree ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground group-hover/lec:bg-muted-80'}`}>
-                                            {isFree ? <Play className="w-3.5 h-3.5 fill-current" /> : <Lock className="w-3.5 h-3.5" />}
+                                    const isUnlocked = enrolled || p.is_preview;
+                                    
+                                    return (
+                                      <li key={p.id}>
+                                        <Link
+                                          to={isUnlocked ? `/learn/${course.slug}?part=${p.id}` : '#'}
+                                          onClick={(e) => { if (!isUnlocked) handleLockedClick(e); }}
+                                          className={`group flex items-center gap-3 py-2 px-3 rounded-lg transition-colors ${
+                                            isUnlocked 
+                                              ? 'hover:bg-primary/5 cursor-pointer' 
+                                              : 'opacity-60 hover:opacity-100 hover:bg-muted/50 cursor-pointer'
+                                          }`}
+                                        >
+                                          <div className={`w-5 h-5 flex items-center justify-center shrink-0 rounded-full ${
+                                            isUnlocked 
+                                              ? 'bg-primary/10 text-primary' 
+                                              : 'bg-muted text-muted-foreground'
+                                          }`}>
+                                            {isUnlocked ? <Play className="w-3 h-3 fill-current" /> : <Lock className="w-2.5 h-2.5" />}
                                           </div>
-                                          <span className={`truncate transition-colors ${!isFree ? 'text-muted-foreground group-hover/lec:text-foreground' : ''}`}>
+                                          <span className={`flex-1 text-sm truncate ${isUnlocked ? 'text-foreground' : 'text-muted-foreground'}`}>
                                             {p.name}
                                           </span>
-                                        </span>
-                                        <div className="flex items-center gap-2 flex-shrink-0">
-                                          {p.duration && (<span className="text-xs text-muted-foreground tabular-nums">{p.duration}</span>)}
-                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isFree ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground'}`}>
-                                            {isFree ? 'FREE' : 'LOCKED'}
-                                          </span>
-                                        </div>
-                                      </div>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            {p.duration && (
+                                              <span className="text-[11px] text-muted-foreground tabular-nums">{p.duration}</span>
+                                            )}
+                                            {/* Hide tags completely if the user is already enrolled */}
+                                            {!enrolled && (
+                                              p.is_preview ? (
+                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600">
+                                                  FREE
+                                                </span>
+                                              ) : (
+                                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                                  LOCKED
+                                                </span>
+                                              )
+                                            )}
+                                          </div>
+                                        </Link>
+                                      </li>
                                     );
-                                    if (isFree) return (<Link to={`/learn/${course.slug}`} key={p.id} className="block no-underline">{lectureElement}</Link>);
-                                    return (<div key={p.id} onClick={handleLockedClick}>{lectureElement}</div>);
                                   })}
                                 </ul>
                               </AccordionContent>
@@ -606,22 +615,18 @@ const CourseDetail = () => {
                         </PopoverTrigger>
                         <PopoverContent className="w-auto p-2 shadow-xl" align="end">
                           <div className="grid grid-cols-4 gap-1">
-                            {/* WhatsApp */}
                             <a href={`https://wa.me/?text=${encodeURIComponent(shareText + ' ' + courseUrl)}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
                               <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
                               <span className="text-[9px] mt-1 font-medium">WhatsApp</span>
                             </a>
-                            {/* Twitter / X */}
                             <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(courseUrl)}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
                               <svg className="w-5 h-5 text-foreground" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
                               <span className="text-[9px] mt-1 font-medium">X</span>
                             </a>
-                            {/* LinkedIn */}
                             <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseUrl)}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
                               <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
                               <span className="text-[9px] mt-1 font-medium">LinkedIn</span>
                             </a>
-                            {/* Copy Link */}
                             <button onClick={copyToClipboard} className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
                               {copied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5 text-muted-foreground" />}
                               <span className="text-[9px] mt-1 font-medium">{copied ? 'Copied' : 'Copy'}</span>

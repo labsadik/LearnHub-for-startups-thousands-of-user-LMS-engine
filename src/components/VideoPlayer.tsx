@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { Play, Loader2, AlertCircle, WifiOff, Settings, X } from "lucide-react";
+import { Play, Loader2, AlertCircle, WifiOff } from "lucide-react";
 // @ts-ignore - Bypass broken/incomplete Plyr types
 import Plyr from "plyr";
 import "plyr/dist/plyr.css";
@@ -26,6 +26,11 @@ interface VideoPlayerProps {
   onProgress?: (pct: number) => void;
   onMinuteWatched?: (minute: number) => void;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   QUALITY SENTINEL VALUE
+   ═══════════════════════════════════════════════════════════════ */
+const AUTO_QUALITY = 999999;
 
 /* ═══════════════════════════════════════════════════════════════
    NETWORK DETECTION
@@ -342,7 +347,6 @@ export default function VideoPlayer({
     networkInfo.quality === "very-slow" || networkInfo.quality === "slow"
   );
   const [currentQuality, setCurrentQuality] = useState<number | null>(null);
-  const [showQualityPanel, setShowQualityPanel] = useState(false);
   const [qualityLevels, setQualityLevels] = useState<{ height: number; bitrate: number; level: number }[]>([]);
   const [isAutoQuality, setIsAutoQuality] = useState(true);
   const [isMutedByAutoplay, setIsMutedByAutoplay] = useState(false);
@@ -355,7 +359,6 @@ export default function VideoPlayer({
   const cleanupRef = useRef<(() => void) | null>(null);
   const retryCountRef = useRef(0);
   const initAttemptRef = useRef(0);
-  const qualityPanelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Tracking Refs ── */
   const completedRef = useRef(false);
@@ -383,7 +386,6 @@ export default function VideoPlayer({
     setState("playing");
     if (player) {
       try {
-        // Try unmute immediately - if browser allows it will work
         player.muted = false;
         player.volume = 1;
         setIsMutedByAutoplay(false);
@@ -411,10 +413,6 @@ export default function VideoPlayer({
 
   /* ── Destroy ── */
   const destroyPlayer = useCallback(() => {
-    if (qualityPanelTimerRef.current) {
-      clearTimeout(qualityPanelTimerRef.current);
-      qualityPanelTimerRef.current = null;
-    }
     qualityManagerRef.current?.destroy();
     qualityManagerRef.current = null;
     if (cleanupRef.current) {
@@ -441,7 +439,6 @@ export default function VideoPlayer({
     setQualityLevels([]);
     setIsAutoQuality(true);
     setIsBuffering(false);
-    setShowQualityPanel(false);
     setIsMutedByAutoplay(false);
   }, []);
 
@@ -488,19 +485,6 @@ export default function VideoPlayer({
     conn.addEventListener("change", fn);
     return () => conn.removeEventListener("change", fn);
   }, []);
-
-  /* ── Hide quality panel after inactivity ── */
-  useEffect(() => {
-    if (!showQualityPanel) return;
-    if (qualityPanelTimerRef.current) clearTimeout(qualityPanelTimerRef.current);
-    qualityPanelTimerRef.current = setTimeout(() => setShowQualityPanel(false), 4000);
-    return () => {
-      if (qualityPanelTimerRef.current) {
-        clearTimeout(qualityPanelTimerRef.current);
-        qualityPanelTimerRef.current = null;
-      }
-    };
-  }, [showQualityPanel]);
 
   /* ── Plyr tracking ── */
   const attachPlyrTracking = useCallback((player: any) => {
@@ -572,10 +556,8 @@ export default function VideoPlayer({
 
   /* ── Wire Plyr ── */
   const wirePlayer = useCallback((player: any) => {
-    // Immediately mark as playing when ready - no delay
     const onReady = () => markAsPlaying(player);
     try {
-      // Check if already ready
       if (player.ready) {
         onReady();
       } else {
@@ -597,9 +579,10 @@ export default function VideoPlayer({
 
     hls.on(Events.LEVEL_SWITCHED, (_event, data) => {
       const lvl = hls.levels[data.level];
+      const isAuto = hls.currentLevel === -1;
       setCurrentQuality(data.level);
-      setIsAutoQuality(hls.currentLevel === -1);
-      if (lvl) console.log(`[HLS] Quality → ${lvl.height}p`);
+      setIsAutoQuality(isAuto);
+      if (lvl) console.log(`[HLS] Quality → ${lvl.height}p (${isAuto ? "auto" : "manual"})`);
     });
 
     hls.on(Events.FRAG_BUFFERED, () => {
@@ -650,7 +633,7 @@ export default function VideoPlayer({
     v.preload = "auto";
     v.playsInline = true;
     v.autoplay = true;
-    v.muted = true; // Always start muted for autoplay to work
+    v.muted = true;
     v.style.cssText = "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;";
     if (detected.thumbnail && !thumbFailedRef.current) v.poster = detected.thumbnail;
     return v;
@@ -662,7 +645,6 @@ export default function VideoPlayer({
     playerElRef.current.innerHTML = "";
     setErrorMsg("");
     setIsBuffering(false);
-    setShowQualityPanel(false);
     initAttemptRef.current++;
     const attempt = initAttemptRef.current;
     const alive = () => attempt === initAttemptRef.current;
@@ -750,62 +732,89 @@ export default function VideoPlayer({
         const levels = hls.levels.map((l, i) => ({ height: l.height, bitrate: l.bitrate, level: i }));
         setQualityLevels(levels);
 
-        // Start at lowest for slow or live, otherwise auto
+        // Build unique sorted quality heights for Plyr
+        const uniqueHeights = [...new Set(levels.map(l => l.height))].sort((a, b) => b - a);
+        const qualityOptions = [AUTO_QUALITY, ...uniqueHeights];
+
+        // Determine default quality based on network
+        let defaultQuality: number;
         if (networkInfo.quality === "very-slow" || networkInfo.quality === "slow") {
           hls.currentLevel = 0;
+          defaultQuality = uniqueHeights[uniqueHeights.length - 1] || AUTO_QUALITY;
           setIsAutoQuality(false);
         } else if (isLive) {
           hls.currentLevel = 0;
+          defaultQuality = uniqueHeights[uniqueHeights.length - 1] || AUTO_QUALITY;
           setIsAutoQuality(false);
         } else {
           hls.currentLevel = -1; // auto
+          defaultQuality = AUTO_QUALITY;
           setIsAutoQuality(true);
         }
 
-        // Controls - always include progress (even for live to show buffer)
-        const baseControls = ["play-large", "play", "progress", "current-time", "mute", "volume", "fullscreen"];
+        // Controls — always include settings so quality gear icon is accessible
+        const controls = ["play-large", "play", "progress", "current-time", "mute", "volume", "settings", "fullscreen"];
         const fullControls = ["play-large", "play", "progress", "current-time", "duration", "mute", "volume", "settings", "airplay", "fullscreen"];
+        const selectedControls = (mobile || isLive) ? controls : fullControls;
 
-        const controls = (mobile || isLive) ? baseControls : fullControls;
-        const settings = ["quality", "speed"];
+        // Only show quality in settings if we have multiple levels
+        const settingsItems = uniqueHeights.length > 1 ? ["quality", "speed"] : ["speed"];
 
         const player = new Plyr(videoEl, {
           autoplay: true,
-          muted: true, // Start muted - required for autoplay
-          controls,
-          settings,
-          hideControls: false,
+          muted: true,
+          controls: selectedControls,
+          settings: settingsItems,
+          hideControls: true, // Auto-hide controls after playback starts
           resetOnEnd: false,
           invertTime: !isLive,
           tooltips: { controls: false, seek: false },
           keyboard: { focused: true, global: false },
           clickToPlay: true,
           storage: { key: `plyr-${video.id}` },
-          // Disable built-in quality menu - we use our custom one
-          quality: { default: -1, options: [], forced: false, onChange: () => {} },
+          quality: {
+            default: defaultQuality,
+            options: qualityOptions,
+            forced: true,
+            onChange: (newQuality: number) => {
+              if (newQuality === AUTO_QUALITY) {
+                hls.currentLevel = -1;
+                setIsAutoQuality(true);
+              } else {
+                // Find the first level matching this height
+                const idx = hls.levels.findIndex(l => l.height === newQuality);
+                if (idx >= 0) {
+                  hls.currentLevel = idx;
+                  setIsAutoQuality(false);
+                }
+              }
+            },
+          },
+          i18n: {
+            qualityLabel: {
+              [AUTO_QUALITY]: "Auto",
+            },
+          },
         });
 
         wirePlayer(player);
         playerRef.current = player;
 
-        // Try to unmute after first frame - if browser allows
+        // Try to unmute after first frame
         const tryUnmute = () => {
           if (!alive()) return;
           try {
             const playPromise = videoEl.play();
             if (playPromise) {
               playPromise.then(() => {
-                // Playback started - try unmute
                 try {
                   videoEl.muted = false;
                   player.muted = false;
                   setIsMutedByAutoplay(false);
                 } catch {
-                  // Can't unmute - user needs to interact
                   setIsMutedByAutoplay(true);
                 }
               }).catch(() => {
-                // Autoplay blocked even with muted
                 setIsMutedByAutoplay(true);
               });
             }
@@ -814,10 +823,8 @@ export default function VideoPlayer({
           }
         };
 
-        // Try unmute immediately after play starts
         videoEl.addEventListener("playing", tryUnmute, { once: true });
 
-        // Also try on first user interaction
         const onFirstInteraction = () => {
           handleUserInteraction();
           document.removeEventListener("click", onFirstInteraction);
@@ -847,7 +854,9 @@ export default function VideoPlayer({
         const player = new Plyr(videoEl, {
           autoplay: true,
           muted: true,
-          controls: ["play-large", "play", "progress", "mute", "volume", "fullscreen"],
+          controls: ["play-large", "play", "progress", "current-time", "mute", "volume", "settings", "fullscreen"],
+          settings: ["speed"],
+          hideControls: true,
         });
         wirePlayer(player);
         playerRef.current = player;
@@ -887,36 +896,14 @@ export default function VideoPlayer({
   const handleForceLowQuality = useCallback(() => {
     qualityManagerRef.current?.forceLowestQuality();
     if (hlsRef.current) { hlsRef.current.currentLevel = 0; setIsAutoQuality(false); }
+    // Also update Plyr's quality display to match
+    if (playerRef.current && hlsRef.current?.levels?.[0]) {
+      try { playerRef.current.quality = hlsRef.current.levels[0].height; } catch { /* noop */ }
+    }
     setNetworkWarning(false);
   }, []);
 
-  const handleQualitySelect = useCallback((level: number) => {
-    if (level === -1) {
-      if (hlsRef.current) hlsRef.current.currentLevel = -1;
-      setIsAutoQuality(true);
-    } else {
-      if (hlsRef.current) hlsRef.current.currentLevel = level;
-      qualityManagerRef.current?.setQuality(level);
-      setIsAutoQuality(false);
-    }
-    setShowQualityPanel(false);
-  }, []);
-
-  const toggleQualityPanel = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowQualityPanel(prev => !prev);
-  }, []);
-
   const activeThumb = thumbFailed ? "/placeholder.svg" : detected.thumbnail;
-
-  // Get current quality label
-  const currentQualityLabel = useMemo(() => {
-    if (isAutoQuality) return "Auto";
-    if (currentQuality !== null && hlsRef.current?.levels?.[currentQuality]) {
-      return `${hlsRef.current.levels[currentQuality].height}p`;
-    }
-    return "Auto";
-  }, [currentQuality, isAutoQuality]);
 
   /* ═══════════════════════════════════════════════════════════════
      RENDER
@@ -1069,79 +1056,7 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════════
-          CUSTOM QUALITY CHANGER BUTTON + PANEL
-          ═══════════════════════════════════════════════ */}
-      {state === "playing" && qualityLevels.length > 0 && (
-        <>
-          {/* Quality toggle button */}
-          <button
-            onClick={toggleQualityPanel}
-            className="absolute bottom-14 right-3 z-50 flex items-center gap-1.5 px-2.5 py-1.5 bg-white/80 hover:bg-white text-gray-800 rounded-lg text-xs font-semibold shadow-lg transition-all cursor-pointer backdrop-blur-sm border border-white/50"
-            style={{ touchAction: "manipulation" }}
-            title="Change quality"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span className="tabular-nums">{currentQualityLabel}</span>
-          </button>
-
-          {/* Quality panel */}
-          {showQualityPanel && (
-            <div
-              className="absolute bottom-24 right-3 z-[60] bg-white/95 backdrop-blur-xl rounded-xl shadow-2xl border border-gray-200/60 overflow-hidden min-w-[160px]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Panel header */}
-              <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-                <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Quality</span>
-                <button
-                  onClick={() => setShowQualityPanel(false)}
-                  className="p-0.5 rounded hover:bg-gray-100 transition-colors"
-                >
-                  <X className="w-3.5 h-3.5 text-gray-500" />
-                </button>
-              </div>
-
-              {/* Auto option */}
-              <button
-                onClick={() => handleQualitySelect(-1)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors ${
-                  isAutoQuality
-                    ? "bg-blue-50 text-blue-700 font-semibold"
-                    : "text-gray-700 hover:bg-gray-50 font-medium"
-                }`}
-              >
-                <span>Auto</span>
-                {isAutoQuality && (
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                )}
-              </button>
-
-              {/* Quality levels - sorted high to low */}
-              {[...qualityLevels]
-                .sort((a, b) => b.height - a.height)
-                .map((q) => (
-                  <button
-                    key={q.level}
-                    onClick={() => handleQualitySelect(q.level)}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors ${
-                      !isAutoQuality && currentQuality === q.level
-                        ? "bg-blue-50 text-blue-700 font-semibold"
-                        : "text-gray-700 hover:bg-gray-50 font-medium"
-                    }`}
-                  >
-                    <span>{q.height}p</span>
-                    {(!isAutoQuality && currentQuality === q.level) && (
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
-                    )}
-                  </button>
-                ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* PLYR MOUNT */}
+      {/* PLYR MOUNT — controls auto-hide via hideControls: true */}
       <div
         ref={playerElRef}
         className={`paler-plyr plyr-container absolute inset-0 z-30 ${

@@ -8,10 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import {
-  Wallet, ShoppingCart, Search, Loader2, CalendarDays, X, Download,
+  Wallet, Search, Loader2, CalendarDays, X,
   FileText, TrendingUp, BadgePercent, CircleHelp, Users, BookOpen,
   IndianRupee, BarChart3, Filter, Info, ChevronRight, Sparkles,
-  CheckCircle2, ArrowRight, FileSpreadsheet, Table2, Eye, Clock,
+  CheckCircle2, FileSpreadsheet, Table2, Eye, Clock,
   Phone, Mail, User, Tag, Receipt, PieChart, ArrowUpRight, Target
 } from 'lucide-react';
 import { useSEO } from '@/lib/seo';
@@ -25,13 +25,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-
-// @ts-ignore - PDF Library imports
+// @ts-ignore
 import jsPDF from 'jspdf';
+// @ts-ignore
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 type Enrollment = {
   id: string;
@@ -49,6 +49,16 @@ type DateFilter = { mode: DateMode; year: number; month: number; day: number };
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+const fmtDate = (iso: string) => {
+  try { return format(new Date(iso), 'dd-MMM-yyyy'); } catch { return '—'; }
+};
+const fmtTime = (iso: string) => {
+  try { return format(new Date(iso), 'hh:mm a'); } catch { return '—'; }
+};
+const fmtDayOfWeek = (iso: string) => {
+  try { return format(new Date(iso), 'EEEE'); } catch { return '—'; }
+};
+
 const AdminRevenue = () => {
   useSEO({ title: 'Admin Revenue Analytics' });
 
@@ -62,7 +72,12 @@ const AdminRevenue = () => {
 
   const [calDate, setCalDate] = useState<Date | undefined>(undefined);
   const [calOpen, setCalOpen] = useState(false);
-  const [df, setDf] = useState<DateFilter>({ mode: 'all', year: new Date().getFullYear(), month: new Date().getMonth() + 1, day: new Date().getDate() });
+  const [df, setDf] = useState<DateFilter>({
+    mode: 'all',
+    year: new Date().getFullYear(),
+    month: new Date().getMonth() + 1,
+    day: new Date().getDate(),
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,13 +90,22 @@ const AdminRevenue = () => {
       setRows((ensRes.data || []) as Enrollment[]);
       const nm: Record<string, string> = {};
       const ph: Record<string, string> = {};
-      (profilesRes.data || []).forEach((p: any) => { nm[p.user_id] = p.display_name || ''; if (p.phone) ph[p.user_id] = p.phone; });
+      (profilesRes.data || []).forEach((p: any) => {
+        nm[p.user_id] = p.display_name || '';
+        if (p.phone) ph[p.user_id] = p.phone;
+      });
       setNames(nm);
       setPhones(ph);
       const em: Record<string, string> = {};
-      (((fnRes.data as any)?.users) || []).forEach((u: any) => { em[u.id] = u.email; });
+      if (fnRes.data && (fnRes.data as any).users) {
+        ((fnRes.data as any).users).forEach((u: any) => { em[u.id] = u.email; });
+      }
       setEmails(em);
-    } catch { toast.error('Failed to load revenue data'); } finally { setLoading(false); }
+    } catch {
+      toast.error('Failed to load revenue data');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -99,6 +123,7 @@ const AdminRevenue = () => {
     setDf(p => ({ ...p, mode, day: Math.min(p.day, new Date(p.year, p.month, 0).getDate()) }));
     if (mode !== 'all') setCalOpen(false);
   }, []);
+
   const setYear = useCallback((y: number) => setDf(p => ({ ...p, year: y, day: Math.min(p.day, new Date(y, p.month, 0).getDate()) })), []);
   const setMonth = useCallback((m: number) => setDf(p => ({ ...p, month: m, day: Math.min(p.day, new Date(p.year, m, 0).getDate()) })), []);
   const setDay = useCallback((d: number) => setDf(p => ({ ...p, day: d })), []);
@@ -144,7 +169,6 @@ const AdminRevenue = () => {
     });
   }, [dateFiltered, search, names, emails, phones]);
 
-  // Accurate classification logic
   const classifyEnrollment = useCallback((r: Enrollment) => {
     const isGranted = r.promocode === 'ADMIN_GRANT';
     const isFree = !isGranted && (r.amount_paid_inr || 0) === 0;
@@ -153,9 +177,10 @@ const AdminRevenue = () => {
     return { isGranted, isFree, isPromo, isPaid };
   }, []);
 
-  const totals = useMemo(() => {
-    let total = 0, paid = 0, free = 0, promos = 0, granted = 0, paidRevenue = 0, promoRevenue = 0;
-    for (const r of dateFiltered) {
+  const computeSummary = useCallback((data: Enrollment[]) => {
+    let total = 0, paid = 0, free = 0, promos = 0, granted = 0;
+    let paidRevenue = 0, promoRevenue = 0;
+    for (const r of data) {
       const c = classifyEnrollment(r);
       total += r.amount_paid_inr || 0;
       if (c.isPaid) { paid++; paidRevenue += r.amount_paid_inr || 0; }
@@ -165,8 +190,10 @@ const AdminRevenue = () => {
     }
     const aov = paid > 0 ? paidRevenue / paid : 0;
     const conversionRate = (paid + promos) > 0 ? ((paid / (paid + promos)) * 100) : 0;
-    return { total, paid, free, promos, granted, count: dateFiltered.length, aov, paidRevenue, promoRevenue, conversionRate };
-  }, [dateFiltered, classifyEnrollment]);
+    return { total, paid, free, promos, granted, count: data.length, aov, paidRevenue, promoRevenue, conversionRate };
+  }, [classifyEnrollment]);
+
+  const totals = useMemo(() => computeSummary(dateFiltered), [dateFiltered, computeSummary]);
 
   const byCourse = useMemo(() => {
     const m = new Map<string, { title: string; revenue: number; count: number; paid: number; free: number; promo: number; granted: number }>();
@@ -204,208 +231,249 @@ const AdminRevenue = () => {
   const byMonth = useMemo(() => bucket(dateFiltered, d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`), [bucket, dateFiltered]);
   const byDay = useMemo(() => bucket(dateFiltered, d => d.toISOString().slice(0, 10)), [bucket, dateFiltered]);
 
-  // --- EXPORT DATA ---
-  const getExportData = () => filteredRows.map((r, i) => ({
-    '#': i + 1,
-    Date: format(new Date(r.enrolled_at), 'dd-MMM-yyyy'),
-    Time: format(new Date(r.enrolled_at), 'hh:mm a'),
-    'Student Name': names[r.user_id] || 'Unknown',
-    Email: emails[r.user_id] || 'Unknown',
-    Phone: phones[r.user_id] || 'N/A',
-    Course: r.courses?.title || 'Unknown',
-    Type: classifyEnrollment(r).isGranted ? 'Granted' : (classifyEnrollment(r).isFree ? 'Free' : (classifyEnrollment(r).isPromo ? 'Promo' : 'Paid')),
-    'Promo Code': r.promocode === 'ADMIN_GRANT' ? 'ADMIN' : (r.promocode || '—'),
-    'Amount (₹)': r.amount_paid_inr || 0
-  }));
+  // ─── Export helpers ───
+  const getExportData = useCallback(() => {
+    return filteredRows.map((r, i) => {
+      const c = classifyEnrollment(r);
+      const typeLabel = c.isGranted ? 'Granted' : c.isFree ? 'Free' : c.isPromo ? 'Promo' : 'Paid';
+      return {
+        '#': i + 1,
+        'Date': fmtDate(r.enrolled_at),
+        'Day': fmtDayOfWeek(r.enrolled_at),
+        'Time': fmtTime(r.enrolled_at),
+        'Student Name': names[r.user_id] || 'Unknown',
+        'Email': emails[r.user_id] || 'Unknown',
+        'Phone': phones[r.user_id] || 'N/A',
+        'Course': r.courses?.title || 'Unknown',
+        'Type': typeLabel,
+        'Promo Code': r.promocode === 'ADMIN_GRANT' ? 'ADMIN' : (r.promocode || '—'),
+        'Amount (₹)': r.amount_paid_inr || 0,
+      };
+    });
+  }, [filteredRows, classifyEnrollment, names, emails, phones]);
 
-  // --- EXCEL/CSV EXPORT (Properly Formatted) ---
+  const getExportByCourse = useCallback(() => {
+    const m = new Map<string, { title: string; revenue: number; count: number; paid: number; free: number; promo: number; granted: number }>();
+    for (const r of filteredRows) {
+      const c = classifyEnrollment(r);
+      const e = m.get(r.course_id) || { title: r.courses?.title || '—', revenue: 0, count: 0, paid: 0, free: 0, promo: 0, granted: 0 };
+      e.revenue += r.amount_paid_inr || 0;
+      e.count += 1;
+      if (c.isPaid) e.paid++;
+      if (c.isFree) e.free++;
+      if (c.isPromo) e.promo++;
+      if (c.isGranted) e.granted++;
+      m.set(r.course_id, e);
+    }
+    return [...m.values()].sort((a, b) => b.revenue - a.revenue);
+  }, [filteredRows, classifyEnrollment]);
+
+  const getExportByMonth = useCallback(() => {
+    return bucket(filteredRows, d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }, [bucket, filteredRows]);
+
+  // ═══════════════════════════════════════
+  // ─── EXCEL EXPORT ───
+  // ═══════════════════════════════════════
   const downloadExcel = () => {
     const data = getExportData();
     if (data.length === 0) return toast.error("No data to export");
 
-    // BOM for proper UTF-8 in Excel
-    const BOM = '\uFEFF';
-    const separator = ',';
-    const newline = '\r\n';
+    const wb = XLSX.utils.book_new();
+    const expSummary = computeSummary(filteredRows);
+    const expByCourse = getExportByCourse();
+    const expByMonth = getExportByMonth();
+    const generatedAt = format(new Date(), 'dd-MMM-yyyy hh:mm a');
 
-    // Summary Section
-    const summaryLines = [
-      `LearnHub - Revenue Report`,
-      `Filter: ${filterLabelFull}`,
-      `Generated: ${format(new Date(), 'dd-MMM-yyyy hh:mm a')}`,
-      ``,
-      `SUMMARY`,
-      `Total Revenue,${totals.total}`,
-      `Paid Revenue,${totals.paidRevenue}`,
-      `Promo Revenue,${totals.promoRevenue}`,
-      `Total Enrollments,${totals.count}`,
-      `Paid Enrollments,${totals.paid}`,
-      `Free Enrollments,${totals.free}`,
-      `Promo Enrollments,${totals.promos}`,
-      `Granted Enrollments,${totals.granted}`,
-      `Avg Order Value (Paid),${Math.round(totals.aov)}`,
-      `Conversion Rate,${totals.conversionRate.toFixed(1)}%`,
-      ``,
-      `DETAILED DATA`,
-      ``,
+    // Sheet 1: Summary
+    const summaryRows: any[][] = [
+      ['LearnHub — Revenue Analytics Report'],
+      ['Filter: ' + filterLabelFull],
+      ['Generated: ' + generatedAt],
+      [],
+      ['SUMMARY METRICS'],
+      ['Metric', 'Value'],
+      ['Total Revenue (Rs)', expSummary.total],
+      ['Paid Revenue (Rs)', expSummary.paidRevenue],
+      ['Promo Revenue (Rs)', expSummary.promoRevenue],
+      ['Total Enrollments', expSummary.count],
+      ['Paid Enrollments', expSummary.paid],
+      ['Free Enrollments', expSummary.free],
+      ['Promo Enrollments', expSummary.promos],
+      ['Granted Enrollments', expSummary.granted],
+      ['Avg Order Value - Paid only (Rs)', Math.round(expSummary.aov)],
+      ['Conversion Rate (Paid / Paying)', expSummary.conversionRate.toFixed(1) + '%'],
+      [],
+      ['COURSE-WISE BREAKDOWN'],
+      ['Course', 'Revenue (Rs)', 'Total Enrollments', 'Paid', 'Free', 'Promo', 'Granted'],
+      ...expByCourse.map(c => [c.title, c.revenue, c.count, c.paid, c.free, c.promo, c.granted]),
+      [],
+      ['MONTHLY BREAKDOWN'],
+      ['Month', 'Revenue (Rs)', 'Total Enrollments', 'Paid', 'Free', 'Promo', 'Granted'],
+      ...expByMonth.map(b => [b.key, b.revenue, b.count, b.paid, b.free, b.promo, b.granted]),
     ];
 
+    const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
+    ws1['!cols'] = [
+      { wch: 35 }, { wch: 18 }, { wch: 18 }, { wch: 10 },
+      { wch: 10 }, { wch: 10 }, { wch: 10 },
+    ];
+    ws1['!merges'] = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+      { s: { r: 2, c: 0 }, e: { r: 2, c: 6 } },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
+
+    // Sheet 2: Enrollment Data
     const headers = Object.keys(data[0]);
-    const csvHeader = headers.join(separator);
-    const csvBody = data.map(row =>
-      headers.map(h => {
-        const val = row[h as keyof typeof row];
-        const str = String(val);
-        // Escape quotes and wrap if contains comma/newline/quote
-        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
-          return `"${str.replace(/"/g, '""')}"`;
-        }
-        return str;
-      }).join(separator)
-    );
-
-    // Totals row
-    const totalRow = headers.map((h, idx) => {
+    const dataRows = data.map(row => headers.map(h => row[h as keyof typeof row]));
+    const totalAmount = data.reduce((sum, r) => sum + (r['Amount (₹)'] as number), 0);
+    const totalsRow = headers.map((h, idx) => {
       if (idx === 0) return '';
-      if (h === 'Amount (₹)') return String(totals.total);
-      if (h === 'Type') return 'TOTAL';
+      if (h === 'Student Name') return 'TOTAL';
+      if (h === 'Amount (₹)') return totalAmount;
       return '';
-    }).join(separator);
+    });
 
-    const csvContent = [
-      ...summaryLines.map(l => l),
-      csvHeader,
-      ...csvBody,
-      totalRow
-    ].join(newline);
+    const ws2 = XLSX.utils.aoa_to_sheet([headers, ...dataRows, totalsRow]);
+    ws2['!cols'] = headers.map(h => {
+      const maxLen = Math.max(h.length, ...data.map(r => String(r[h as keyof typeof r]).length));
+      return { wch: Math.min(maxLen + 3, 45) };
+    });
+    XLSX.utils.book_append_sheet(wb, ws2, 'Enrollment Data');
 
-    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
     const safeName = (filterLabel || 'All_Time').replace(/\s+/g, '_');
-    link.download = `LearnHub_Revenue_${safeName}_${format(new Date(), 'dd_MMM_yyyy')}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
-    toast.success("Excel/CSV downloaded with summary & formatted data");
+    XLSX.writeFile(wb, 'LearnHub_Revenue_' + safeName + '_' + format(new Date(), 'dd_MMM_yyyy') + '.xlsx');
+    toast.success("Excel downloaded — 2 sheets: Summary + Enrollment Data");
   };
 
-  // --- PDF EXPORT (Properly Formatted) ---
+  // ═══════════════════════════════════════
+  // ─── PDF EXPORT ───
+  // ═══════════════════════════════════════
   const downloadPDF = () => {
     const data = getExportData();
     if (data.length === 0) return toast.error("No data to export");
 
     const doc = new jsPDF('landscape', 'mm', 'a4');
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 14;
+    const pw = doc.internal.pageSize.getWidth();
+    const ph = doc.internal.pageSize.getHeight();
+    const mg = 14;
 
-    // --- PAGE 1: SUMMARY ---
-    // Top accent bar
+    const expSummary = computeSummary(filteredRows);
+    const expByCourse = getExportByCourse();
+    const expByMonth = getExportByMonth();
+    const generatedAt = format(new Date(), 'dd MMMM yyyy, hh:mm a');
+
+    // ─── PAGE 1: SUMMARY ───
     doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, pageWidth, 4, 'F');
+    doc.rect(0, 0, pw, 5, 'F');
 
-    // Title
-    doc.setFontSize(22);
+    doc.setFontSize(24);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text('LearnHub', margin, 18);
-    doc.setFontSize(13);
+    doc.setTextColor(37, 99, 235);
+    doc.text('LearnHub', mg, 20);
+
+    doc.setFontSize(12);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139);
-    doc.text('Revenue Analytics Report', margin + 48, 18);
+    doc.text('Revenue Analytics Report', mg + 52, 20);
 
-    // Filter & Date info
     doc.setFontSize(9);
     doc.setTextColor(148, 163, 184);
-    doc.text(`Filter: ${filterLabelFull}`, margin, 26);
-    doc.text(`Generated: ${format(new Date(), 'dd MMMM yyyy, hh:mm a')}`, margin + 60, 26);
+    doc.text('Filter: ' + filterLabelFull, mg, 28);
+    doc.text('Generated: ' + generatedAt, mg + 80, 28);
+    doc.text('Total Records: ' + String(filteredRows.length), mg + 180, 28);
 
-    // Divider line
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(margin, 30, pageWidth - margin, 30);
+    doc.line(mg, 32, pw - mg, 32);
 
-    // Summary Cards (simulated with rectangles)
-    const cardY = 36;
-    const cardH = 22;
+    // Summary Cards
+    const cardY = 38;
+    const cardH = 24;
     const cardGap = 4;
-    const cardW = (pageWidth - margin * 2 - cardGap * 5) / 6;
-    const summaryCards = [
-      { label: 'Total Revenue', value: formatPriceINR(totals.total), color: [37, 99, 235] },
-      { label: 'Enrollments', value: String(totals.count), color: [59, 130, 246] },
-      { label: 'Paid', value: String(totals.paid), color: [22, 163, 74] },
-      { label: 'Avg Order Value', value: formatPriceINR(totals.aov), color: [16, 185, 129] },
-      { label: 'Promo Used', value: String(totals.promos), color: [249, 115, 22] },
-      { label: 'Free/Granted', value: `${totals.free}/${totals.granted}`, color: [100, 116, 139] },
+    const cardW = (pw - mg * 2 - cardGap * 5) / 6;
+
+    const cards = [
+      { label: 'TOTAL REVENUE', value: formatPriceINR(expSummary.total), color: [37, 99, 235] },
+      { label: 'ENROLLMENTS', value: String(expSummary.count), color: [59, 130, 246] },
+      { label: 'PAID', value: String(expSummary.paid), color: [22, 163, 74] },
+      { label: 'AVG ORDER VALUE', value: formatPriceINR(expSummary.aov), color: [16, 185, 129] },
+      { label: 'PROMO USED', value: String(expSummary.promos), color: [249, 115, 22] },
+      { label: 'FREE / GRANTED', value: expSummary.free + ' / ' + expSummary.granted, color: [100, 116, 139] },
     ];
 
-    summaryCards.forEach((card, i) => {
-      const x = margin + i * (cardW + cardGap);
-      // Card background
+    cards.forEach((card, i) => {
+      const x = mg + i * (cardW + cardGap);
       doc.setFillColor(248, 250, 252);
       doc.roundedRect(x, cardY, cardW, cardH, 2, 2, 'F');
-      // Left accent
       doc.setFillColor(card.color[0], card.color[1], card.color[2]);
-      doc.rect(x, cardY, 1.5, cardH, 'F');
-      // Label
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
+      doc.rect(x, cardY, 2, cardH, 'F');
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'bold');
       doc.setTextColor(148, 163, 184);
-      doc.text(card.label, x + 4, cardY + 8);
-      // Value
-      doc.setFontSize(11);
+      doc.text(card.label, x + 5, cardY + 9);
+      doc.setFontSize(12);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
-      doc.text(card.value, x + 4, cardY + 17, { maxWidth: cardW - 6 });
+      doc.text(card.value, x + 5, cardY + 19, { maxWidth: cardW - 7 });
     });
 
-    // Revenue Breakdown Section
-    const breakY = cardY + cardH + 10;
+    // Revenue Breakdown Table
+    const breakY = cardY + cardH + 8;
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('Revenue Breakdown', margin, breakY);
+    doc.text('Revenue Breakdown', mg, breakY);
 
-    const breakData = [
-      ['Paid Revenue', formatPriceINR(totals.paidRevenue), `${totals.paid} enrollments`, `${((totals.paidRevenue / Math.max(totals.total, 1)) * 100).toFixed(1)}%`],
-      ['Promo Revenue', formatPriceINR(totals.promoRevenue), `${totals.promos} enrollments`, `${((totals.promoRevenue / Math.max(totals.total, 1)) * 100).toFixed(1)}%`],
-      ['Free Enrollments', '₹0', `${totals.free} enrollments`, '0%'],
-      ['Admin Granted', '₹0', `${totals.granted} enrollments`, '0%'],
-    ];
+    const totalRev = Math.max(expSummary.total, 1);
+    const totalEnr = Math.max(expSummary.count, 1);
 
     autoTable(doc, {
       startY: breakY + 3,
-      margin: { left: margin, right: margin },
-      head: [['Source', 'Revenue', 'Count', 'Share']],
-      body: breakData,
-      styles: { fontSize: 9, cellPadding: 3, lineColor: [226, 232, 240], lineWidth: 0.3 },
-      headStyles: { fillColor: [241, 245, 249], textColor: [100, 116, 139], fontStyle: 'bold', fontSize: 8 },
+      margin: { left: mg, right: mg },
+      head: [['Source', 'Revenue', 'Enrollments', '% of Revenue', '% of Enrollments']],
+      body: [
+        ['Paid (Full Price)', 'Rs.' + expSummary.paidRevenue.toLocaleString(), String(expSummary.paid), ((expSummary.paidRevenue / totalRev) * 100).toFixed(1) + '%', ((expSummary.paid / totalEnr) * 100).toFixed(1) + '%'],
+        ['Promo (Discounted)', 'Rs.' + expSummary.promoRevenue.toLocaleString(), String(expSummary.promos), ((expSummary.promoRevenue / totalRev) * 100).toFixed(1) + '%', ((expSummary.promos / totalEnr) * 100).toFixed(1) + '%'],
+        ['Free (Rs.0, no code)', 'Rs.0', String(expSummary.free), '0%', ((expSummary.free / totalEnr) * 100).toFixed(1) + '%'],
+        ['Admin Granted', 'Rs.0', String(expSummary.granted), '0%', ((expSummary.granted / totalEnr) * 100).toFixed(1) + '%'],
+        ['TOTAL', 'Rs.' + expSummary.total.toLocaleString(), String(expSummary.count), '100%', '100%'],
+      ],
+      styles: { fontSize: 8.5, cellPadding: 3, lineColor: [226, 232, 240], lineWidth: 0.3 },
+      headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 8 },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       columnStyles: {
-        0: { fontStyle: 'bold' },
-        1: { halign: 'right', fontStyle: 'bold' },
-        2: { halign: 'center' },
-        3: { halign: 'right' },
+        0: { fontStyle: 'bold', cellWidth: 40 },
+        1: { halign: 'right', fontStyle: 'bold', cellWidth: 35 },
+        2: { halign: 'center', cellWidth: 25 },
+        3: { halign: 'right', cellWidth: 30 },
+        4: { halign: 'right', cellWidth: 30 },
+      },
+      didParseCell: (hookData: any) => {
+        if (hookData.row.index === 4) {
+          hookData.cell.styles.fillColor = [241, 245, 249];
+          hookData.cell.styles.fontStyle = 'bold';
+        }
       },
     });
 
-    // Course-wise breakdown
-    const courseTableY = (doc as any).lastAutoTable.finalY + 10;
-    if (courseTableY < pageHeight - 60) {
+    // Course-wise Performance
+    const courseTableY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 10 : breakY + 50;
+    if (courseTableY < ph - 55 && expByCourse.length > 0) {
       doc.setFontSize(11);
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(15, 23, 42);
-      doc.text('Course-wise Performance', margin, courseTableY);
+      doc.text('Course-wise Performance', mg, courseTableY);
 
       autoTable(doc, {
         startY: courseTableY + 3,
-        margin: { left: margin, right: margin },
+        margin: { left: mg, right: mg },
         head: [['Course', 'Revenue', 'Enrollments', 'Paid', 'Free', 'Promo', 'Granted']],
-        body: byCourse.map(c => [
+        body: expByCourse.map(c => [
           c.title,
-          formatPriceINR(c.revenue),
+          'Rs.' + c.revenue.toLocaleString(),
           String(c.count),
           String(c.paid),
           String(c.free),
@@ -413,98 +481,152 @@ const AdminRevenue = () => {
           String(c.granted),
         ]),
         styles: { fontSize: 8, cellPadding: 2.5, lineColor: [226, 232, 240], lineWidth: 0.3 },
-        headStyles: { fillColor: [241, 245, 249], textColor: [100, 116, 139], fontStyle: 'bold', fontSize: 7.5 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 7.5 },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: {
           0: { cellWidth: 80, fontStyle: 'bold' },
-          1: { halign: 'right', fontStyle: 'bold' },
-          2: { halign: 'center' },
-          3: { halign: 'center' },
-          4: { halign: 'center' },
-          5: { halign: 'center' },
-          6: { halign: 'center' },
+          1: { halign: 'right', fontStyle: 'bold', cellWidth: 30 },
+          2: { halign: 'center', cellWidth: 22 },
+          3: { halign: 'center', cellWidth: 16 },
+          4: { halign: 'center', cellWidth: 16 },
+          5: { halign: 'center', cellWidth: 16 },
+          6: { halign: 'center', cellWidth: 16 },
         },
       });
     }
 
-    // --- NEW PAGE: DETAILED TABLE ---
+    // Monthly Trend
+    const monthTableY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 10 : courseTableY + 50;
+    if (monthTableY < ph - 50 && expByMonth.length > 0) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text('Monthly Trend', mg, monthTableY);
+
+      autoTable(doc, {
+        startY: monthTableY + 3,
+        margin: { left: mg, right: mg },
+        head: [['Month', 'Revenue', 'Enrollments', 'Paid', 'Free', 'Promo', 'Granted']],
+        body: expByMonth.map(b => {
+          const parts = b.key.split('-');
+          const monthLabel = MONTH_SHORT[parseInt(parts[1]) - 1] + ' ' + parts[0];
+          return [
+            monthLabel,
+            'Rs.' + b.revenue.toLocaleString(),
+            String(b.count),
+            String(b.paid),
+            String(b.free),
+            String(b.promo),
+            String(b.granted),
+          ];
+        }),
+        styles: { fontSize: 8, cellPadding: 2.5, lineColor: [226, 232, 240], lineWidth: 0.3 },
+        headStyles: { fillColor: [241, 245, 249], textColor: [71, 85, 105], fontStyle: 'bold', fontSize: 7.5 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 30, fontStyle: 'bold' },
+          1: { halign: 'right', fontStyle: 'bold', cellWidth: 30 },
+          2: { halign: 'center', cellWidth: 22 },
+          3: { halign: 'center', cellWidth: 16 },
+          4: { halign: 'center', cellWidth: 16 },
+          5: { halign: 'center', cellWidth: 16 },
+          6: { halign: 'center', cellWidth: 16 },
+        },
+      });
+    }
+
+    // ─── PAGE 2+: DETAILED LEDGER ───
     doc.addPage('landscape');
 
-    // Top accent bar on page 2
     doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, pageWidth, 4, 'F');
+    doc.rect(0, 0, pw, 5, 'F');
 
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('Detailed Enrollment Ledger', margin, 16);
+    doc.text('Detailed Enrollment Ledger', mg, 18);
+
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(148, 163, 184);
-    doc.text(`${filteredRows.length} records | Filter: ${filterLabelFull}`, margin, 22);
+    doc.text(filteredRows.length + ' records  |  Filter: ' + filterLabelFull + '  |  Generated: ' + generatedAt, mg, 24);
+
+    const ledgerTotal = filteredRows.reduce((s, r) => s + (r.amount_paid_inr || 0), 0);
 
     autoTable(doc, {
-      startY: 26,
-      margin: { left: margin, right: margin, bottom: 20 },
-      head: [['#', 'Date', 'Time', 'Student Name', 'Email', 'Phone', 'Course', 'Type', 'Promo Code', 'Amount (₹)']],
-      body: data.map(row => [
-        String(row['#']),
-        String(row.Date),
-        String(row.Time),
-        String(row['Student Name']),
-        String(row.Email),
-        String(row.Phone),
-        String(row.Course),
-        String(row.Type),
-        String(row['Promo Code']),
-        String(row['Amount (₹)']),
-      ]),
-      styles: { fontSize: 7.5, cellPadding: 2, lineColor: [226, 232, 240], lineWidth: 0.2 },
+      startY: 28,
+      margin: { left: mg, right: mg, bottom: 18 },
+      head: [['#', 'Date', 'Day', 'Time', 'Student Name', 'Email', 'Phone', 'Course', 'Type', 'Promo Code', 'Amount (Rs)']],
+      body: [
+        ...data.map(row => [
+          String(row['#']),
+          String(row['Date']),
+          String(row['Day']),
+          String(row['Time']),
+          String(row['Student Name']),
+          String(row['Email']),
+          String(row['Phone']),
+          String(row['Course']),
+          String(row['Type']),
+          String(row['Promo Code']),
+          String(row['Amount (₹)']),
+        ]),
+        ['', '', '', '', '', '', '', '', 'TOTAL', '', String(ledgerTotal)],
+      ],
+      styles: { fontSize: 7, cellPadding: 2, lineColor: [226, 232, 240], lineWidth: 0.2 },
       headStyles: {
         fillColor: [37, 99, 235],
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 7.5,
+        fontSize: 7,
       },
       alternateRowStyles: { fillColor: [248, 250, 252] },
       columnStyles: {
-        0: { cellWidth: 8, halign: 'center' },
-        1: { cellWidth: 22 },
-        2: { cellWidth: 18 },
-        3: { cellWidth: 32 },
-        4: { cellWidth: 42 },
-        5: { cellWidth: 22 },
-        6: { cellWidth: 60 },
-        7: { cellWidth: 16, halign: 'center' },
-        8: { cellWidth: 18, halign: 'center' },
-        9: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+        0: { cellWidth: 7, halign: 'center' },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 16 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 30 },
+        5: { cellWidth: 42 },
+        6: { cellWidth: 22 },
+        7: { cellWidth: 50 },
+        8: { cellWidth: 14, halign: 'center' },
+        9: { cellWidth: 18, halign: 'center' },
+        10: { cellWidth: 20, halign: 'right' },
       },
-      didParseCell: (data: any) => {
-        // Color code the Type column
-        if (data.section === 'body' && data.column.index === 7) {
-          const val = String(data.cell.raw);
-          if (val === 'Paid') data.cell.styles.textColor = [22, 163, 74];
-          else if (val === 'Promo') data.cell.styles.textColor = [249, 115, 22];
-          else if (val === 'Free') data.cell.styles.textColor = [37, 99, 235];
-          else if (val === 'Granted') data.cell.styles.textColor = [148, 163, 184];
+      didParseCell: (hookData: any) => {
+        if (hookData.section === 'body' && hookData.column.index === 8) {
+          const val = String(hookData.cell.raw);
+          if (val === 'Paid') hookData.cell.styles.textColor = [22, 163, 74];
+          else if (val === 'Promo') hookData.cell.styles.textColor = [249, 115, 22];
+          else if (val === 'Free') hookData.cell.styles.textColor = [37, 99, 235];
+          else if (val === 'Granted') hookData.cell.styles.textColor = [148, 163, 184];
         }
-      },
-      didDrawPage: (data: any) => {
-        // Footer on every page
-        doc.setFontSize(7);
-        doc.setTextColor(148, 163, 184);
-        doc.text(`LearnHub Revenue Report | Page ${doc.getNumberOfPages()}`, margin, pageHeight - 8);
-        doc.text(`Confidential - Generated on ${format(new Date(), 'dd MMM yyyy')}`, pageWidth - margin - 60, pageHeight - 8);
-        // Footer line
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.3);
-        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+        if (hookData.section === 'body' && hookData.row.index === data.length) {
+          hookData.cell.styles.fillColor = [241, 245, 249];
+          hookData.cell.styles.fontStyle = 'bold';
+          hookData.cell.styles.fontSize = 8;
+        }
       },
     });
 
+    // Add footers to ALL pages
+    const totalPages = doc.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(mg, ph - 14, pw - mg, ph - 14);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184);
+      doc.text('LearnHub Revenue Report  |  Confidential', mg, ph - 9);
+      doc.text('Page ' + i + ' of ' + totalPages + '  |  ' + filterLabelFull + '  |  ' + format(new Date(), 'dd MMM yyyy'), pw - mg, ph - 9, { align: 'right' });
+    }
+
     const safeName = (filterLabel || 'All_Time').replace(/\s+/g, '_');
-    doc.save(`LearnHub_Revenue_${safeName}_${format(new Date(), 'dd_MMM_yyyy')}.pdf`);
-    toast.success("Professional PDF downloaded with summary + detailed data");
+    doc.save('LearnHub_Revenue_' + safeName + '_' + format(new Date(), 'dd_MMM_yyyy') + '.pdf');
+    toast.success("PDF downloaded — Summary + Detailed Ledger");
   };
 
   if (loading) return (
@@ -514,8 +636,8 @@ const AdminRevenue = () => {
     </div>
   );
 
-  const modeBtn = (m: DateMode, label: string, icon: React.ReactNode) => (
-    <Button size="sm" variant={df.mode === m ? 'default' : 'outline'} className="h-8 text-xs px-3 gap-1.5" onClick={() => setMode(m)}>
+  const modeBtn = (mode: DateMode, label: string, icon: React.ReactNode) => (
+    <Button size="sm" variant={df.mode === mode ? 'default' : 'outline'} className="h-8 text-xs px-3 gap-1.5" onClick={() => setMode(mode)}>
       {icon} {label}
     </Button>
   );
@@ -543,7 +665,6 @@ const AdminRevenue = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Guide Button */}
           <Dialog open={guideOpen} onOpenChange={setGuideOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5">
@@ -564,18 +685,18 @@ const AdminRevenue = () => {
                   {[
                     { step: 'A', title: 'Overview', desc: 'This page shows all enrollment revenue data. At the top you see summary stat cards — Total Revenue, Enrollments, Average Order Value, Promo Usage, and Free/Granted counts.', icon: <Eye className="w-4 h-4 text-blue-500" /> },
                     { step: 'B', title: 'Date Filtering', desc: 'Use the filter bar to narrow data by time. Click "Pick Date" to open a calendar, or use the mode buttons: All Time, Year, Month, or Day. Select specific values from the dropdowns that appear.', icon: <CalendarDays className="w-4 h-4 text-blue-500" /> },
-                    { step: 'C', title: 'Calendar Picker', desc: 'Click "Pick Date" button → a calendar pops up → click any date → the filter automatically switches to "Day" mode with that date selected. This is the fastest way to check a specific day.', icon: <Clock className="w-4 h-4 text-blue-500" /> },
-                    { step: 'D', title: 'Clearing Filters', desc: 'When a filter is active, a ✕ button appears. Click it to reset back to "All Time". The blue badge on the right shows what filter is currently active.', icon: <X className="w-4 h-4 text-blue-500" /> },
-                    { step: 'E', title: 'Understanding Stats', desc: 'Total Revenue = sum of all amounts. Avg Order Value = total ÷ paid enrollments only (excludes free/granted). Conversion Rate = paid ÷ (paid + promo) × 100. These are mathematically accurate.', icon: <Target className="w-4 h-4 text-blue-500" /> },
-                    { step: 'F', title: 'Enrollment Types', desc: 'Paid (green) = student paid full price. Promo (orange) = student used a discount code. Free (blue) = enrolled at ₹0 without code. Granted (gray) = admin manually granted access via ADMIN_GRANT code.', icon: <Receipt className="w-4 h-4 text-blue-500" /> },
+                    { step: 'C', title: 'Calendar Picker', desc: 'Click "Pick Date" button, a calendar pops up, click any date, the filter automatically switches to "Day" mode with that date selected. This is the fastest way to check a specific day.', icon: <Clock className="w-4 h-4 text-blue-500" /> },
+                    { step: 'D', title: 'Clearing Filters', desc: 'When a filter is active, a X button appears. Click it to reset back to "All Time". The blue badge on the right shows what filter is currently active.', icon: <X className="w-4 h-4 text-blue-500" /> },
+                    { step: 'E', title: 'Understanding Stats', desc: 'Total Revenue = sum of all amounts. Avg Order Value = total / paid enrollments only (excludes free/granted). Conversion Rate = paid / (paid + promo) x 100. These are mathematically accurate.', icon: <Target className="w-4 h-4 text-blue-500" /> },
+                    { step: 'F', title: 'Enrollment Types', desc: 'Paid (green) = student paid full price. Promo (orange) = student used a discount code. Free (blue) = enrolled at Rs.0 without code. Granted (gray) = admin manually granted access via ADMIN_GRANT code.', icon: <Receipt className="w-4 h-4 text-blue-500" /> },
                     { step: 'G', title: 'Breakdown Tabs', desc: 'Below stats, three tabs show data grouped By Course, By Month, or By Day. Each shows revenue and enrollment count for that group. Useful for spotting trends.', icon: <PieChart className="w-4 h-4 text-blue-500" /> },
                     { step: 'H', title: 'Search', desc: 'The search bar in the table section filters by student name, email, phone, course title, amount, or promo code. It works on the currently date-filtered data.', icon: <Search className="w-4 h-4 text-blue-500" /> },
-                    { step: 'I', title: 'Enrollment Ledger Table', desc: 'The main table shows every enrollment with Date, Name, Email, Phone, Course, Status badge, and Amount. The footer shows the calculated total of visible rows.', icon: <Table2 className="w-4 h-4 text-blue-500" /> },
-                    { step: 'J', title: 'Export to Excel/CSV', desc: 'Click "Excel / CSV" button. It downloads a .csv file that opens perfectly in Excel. Includes a summary section at the top, all columns with proper formatting, and a totals row at the bottom.', icon: <FileSpreadsheet className="w-4 h-4 text-blue-500" /> },
-                    { step: 'K', title: 'Export to PDF', desc: 'Click "Download PDF" for a professional 2-page report. Page 1 has summary cards, revenue breakdown table, and course-wise performance. Page 2 has the full detailed enrollment ledger with color-coded types.', icon: <FileText className="w-4 h-4 text-blue-500" /> },
-                    { step: 'L', title: 'PDF Formatting', desc: 'The PDF has a blue accent bar, proper headings, color-coded status types (green=paid, orange=promo, blue=free, gray=granted), alternating row colors, page numbers, and confidential footer. Print-ready.', icon: <Sparkles className="w-4 h-4 text-blue-500" /> },
-                    { step: 'M', title: 'Data Accuracy', desc: 'All calculations use strict classification logic: ADMIN_GRANT → Granted, amount=0 & no code → Free, amount>0 & has code → Promo, amount>0 & no code → Paid. No overlaps. Every enrollment is counted exactly once.', icon: <CheckCircle2 className="w-4 h-4 text-blue-500" /> },
-                    { step: 'N', title: 'Tips', desc: 'Use Month view to compare monthly performance. Use search to find a specific student\'s all enrollments. Export PDF for meetings. Export CSV if you need to do further analysis in Excel.', icon: <ArrowUpRight className="w-4 h-4 text-blue-500" /> },
+                    { step: 'I', title: 'Enrollment Ledger', desc: 'The main table shows every enrollment with Date, Name, Email, Phone, Course, Status badge, and Amount. The footer shows the calculated total of visible rows.', icon: <Table2 className="w-4 h-4 text-blue-500" /> },
+                    { step: 'J', title: 'Export to Excel', desc: 'Click "Excel" button. Downloads a proper .xlsx file with 2 sheets: "Summary" (metrics, course breakdown, monthly trend) and "Enrollment Data" (all records). Numbers are real numbers so Excel formulas work.', icon: <FileSpreadsheet className="w-4 h-4 text-blue-500" /> },
+                    { step: 'K', title: 'Export to PDF', desc: 'Click "PDF Report" for a professional multi-page report. Page 1: Summary cards, Revenue Breakdown table, Course-wise Performance, Monthly Trend. Page 2+: Full enrollment ledger with color-coded types and totals row.', icon: <FileText className="w-4 h-4 text-blue-500" /> },
+                    { step: 'L', title: 'Date Formats', desc: 'Exports use: Date = DD-MMM-YYYY (e.g. 05-Jan-2025), Day = full day name (e.g. Monday), Time = 12-hour with AM/PM (e.g. 02:30 PM). All amounts are real numbers in Excel.', icon: <Clock className="w-4 h-4 text-blue-500" /> },
+                    { step: 'M', title: 'Data Accuracy', desc: 'All calculations use strict classification logic: ADMIN_GRANT = Granted, amount=0 and no code = Free, amount>0 and has code = Promo, amount>0 and no code = Paid. No overlaps. Every enrollment counted exactly once.', icon: <CheckCircle2 className="w-4 h-4 text-blue-500" /> },
+                    { step: 'N', title: 'Tips', desc: 'Use Month view to compare monthly performance. Use search to find a specific student. Export PDF for meetings. Export Excel for pivot tables or further analysis.', icon: <ArrowUpRight className="w-4 h-4 text-blue-500" /> },
                   ].map(item => (
                     <div key={item.step} className="flex gap-3">
                       <div className="shrink-0 w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-700 font-bold text-sm border border-blue-100">
@@ -596,7 +717,7 @@ const AdminRevenue = () => {
           </Dialog>
 
           <Button variant="outline" size="sm" onClick={downloadExcel} className="h-9 text-xs gap-1.5">
-            <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" /> Excel / CSV
+            <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" /> Excel
           </Button>
           <Button variant="outline" size="sm" onClick={downloadPDF} className="h-9 text-xs gap-1.5">
             <FileText className="w-3.5 h-3.5 text-red-500" /> PDF Report
@@ -707,9 +828,8 @@ const AdminRevenue = () => {
             <span className="text-xs font-semibold text-blue-800">Conversion Rate (Paid vs Total Paying):</span>
             <span className="text-lg font-bold text-blue-700 ml-2">{totals.conversionRate.toFixed(1)}%</span>
           </div>
-          {/* FIX: Wrapped Info icon in a div to apply the title attribute correctly */}
-          <div className="shrink-0" title="Paid enrollments ÷ (Paid + Promo enrollments) × 100">
-             <Info className="w-4 h-4 text-blue-400" />
+          <div className="shrink-0" title="Paid enrollments / (Paid + Promo enrollments) x 100">
+            <Info className="w-4 h-4 text-blue-400" />
           </div>
         </Card>
 

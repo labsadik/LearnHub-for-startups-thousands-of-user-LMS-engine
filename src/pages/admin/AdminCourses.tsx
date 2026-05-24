@@ -8,9 +8,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Plus, Edit, Trash2, ListTree, Eye, Loader2, Calendar } from 'lucide-react';
+import { Plus, Edit, Trash2, ListTree, Eye, Loader2, Calendar, Download, FileSpreadsheet, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { slugify, formatPriceINR } from '@/lib/format';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 interface EnrolledUser {
   id: string;
@@ -32,24 +35,24 @@ const AdminCourses = () => {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState({
-    title: '', slug: '', description: '', meta_description: '', 
+    title: '', slug: '', description: '', meta_description: '',
     thumbnail_url: '', instructor: '', price_inr: 0, is_published: false,
   });
 
   const [viewingCourseId, setViewingCourseId] = useState<string | null>(null);
   const [enrolledUsers, setEnrolledUsers] = useState<EnrolledUser[]>([]);
   const [loadingEnrollments, setLoadingEnrollments] = useState(false);
-  
+
   // Email Map for Admin view (Fetched securely via Edge Function)
   const [emailMap, setEmailMap] = useState<Record<string, string>>({});
-  
+
   // Date Filter State
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
 
   // Fetch Courses & Auth Emails on mount
-  useEffect(() => { 
-    loadCourses(); 
+  useEffect(() => {
+    loadCourses();
     loadAuthEmails();
   }, []);
 
@@ -194,6 +197,112 @@ const AdminCourses = () => {
     });
   }, [enrolledUsers, filterStartDate, filterEndDate]);
 
+  // ─── Helper: Build export rows from filtered enrollments ───
+  const buildExportRows = () => {
+    return filteredEnrollments.map((enroll, index) => ({
+      '#': index + 1,
+      'Name': enroll.profiles?.display_name || 'Unnamed User',
+      'Email': emailMap[enroll.user_id] || '—',
+      'Phone': enroll.profiles?.phone || '—',
+      'Amount Paid (₹)': enroll.amount_paid_inr || 0,
+      'Course Price (₹)': coursePrice,
+      'Promocode': enroll.promocode || '—',
+      'Enrolled Date': new Date(enroll.enrolled_at).toLocaleDateString(),
+      'Enrolled Time': new Date(enroll.enrolled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      'Completion %': `${enroll.completion_percentage}%`,
+    }));
+  };
+
+  // ─── Download as Excel ───
+  const downloadExcel = () => {
+    if (filteredEnrollments.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    try {
+      const rows = buildExportRows();
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+
+      // Auto-size columns
+      const colWidths = Object.keys(rows[0]).map((key) => {
+        const maxLen = Math.max(
+          key.length,
+          ...rows.map((r) => String(r[key as keyof typeof r]).length)
+        );
+        return { wch: Math.min(maxLen + 2, 40) };
+      });
+      worksheet['!cols'] = colWidths;
+
+      const workbook = XLSX.utils.book_new();
+      const courseTitle = currentCourse?.title || 'Course';
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Enrolled Users');
+
+      const dateSuffix = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(workbook, `${slugify(courseTitle)}-enrollments-${dateSuffix}.xlsx`);
+
+      toast.success('Excel downloaded successfully');
+    } catch (err: any) {
+      console.error('Excel export error:', err);
+      toast.error('Failed to generate Excel');
+    }
+  };
+
+  // ─── Download as PDF ───
+  const downloadPDF = () => {
+    if (filteredEnrollments.length === 0) {
+      toast.error('No data to export');
+      return;
+    }
+
+    try {
+      const doc = new jsPDF({ orientation: 'landscape' });
+      const courseTitle = currentCourse?.title || 'Course';
+
+      // Title
+      doc.setFontSize(16);
+      doc.text(`${courseTitle} — Enrolled Users`, 14, 15);
+
+      // Subtitle with date range & count
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      const dateInfo = filterStartDate || filterEndDate
+        ? `Filtered: ${filterStartDate || '...'} to ${filterEndDate || '...'}`
+        : 'All dates';
+      doc.text(`${dateInfo}  |  Total: ${filteredEnrollments.length} user(s)  |  Generated: ${new Date().toLocaleString()}`, 14, 22);
+
+      // Summary row
+      const totalRevenue = filteredEnrollments.reduce((sum, e) => sum + (e.amount_paid_inr || 0), 0);
+      const avgCompletion = filteredEnrollments.length > 0
+        ? Math.round(filteredEnrollments.reduce((sum, e) => sum + e.completion_percentage, 0) / filteredEnrollments.length)
+        : 0;
+      doc.text(`Total Revenue: ₹${totalRevenue.toLocaleString()}  |  Avg Completion: ${avgCompletion}%`, 14, 28);
+
+      // Table
+      const rows = buildExportRows();
+      const headers = Object.keys(rows[0]);
+      const tableData = rows.map((r) => Object.values(r).map(String));
+
+      autoTable(doc, {
+        head: [headers],
+        body: tableData,
+        startY: 33,
+        styles: { fontSize: 8, cellPadding: 2 },
+        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [245, 247, 250] },
+        margin: { left: 14, right: 14 },
+      });
+
+      const dateSuffix = new Date().toISOString().split('T')[0];
+      doc.save(`${slugify(courseTitle)}-enrollments-${dateSuffix}.pdf`);
+
+      toast.success('PDF downloaded successfully');
+    } catch (err: any) {
+      console.error('PDF export error:', err);
+      toast.error('Failed to generate PDF');
+    }
+  };
+
   return (
     <div>
       <header className="flex justify-between items-center mb-4">
@@ -209,7 +318,7 @@ const AdminCourses = () => {
               <div className="font-semibold truncate">{c.title}</div>
               <div className="text-xs text-muted-foreground">/{c.slug} • {formatPriceINR(c.price_inr)} • {c.is_published ? 'Published' : 'Draft'}</div>
             </div>
-            
+
             <div className="flex items-center gap-2 shrink-0 ml-auto">
               <Button variant="default" size="sm" onClick={() => handleViewEnrollments(c.id)} title="View Enrolled Users" className="gap-1.5">
                 <Eye className="w-4 h-4" /> Users
@@ -218,11 +327,11 @@ const AdminCourses = () => {
               <Button asChild variant="outline" size="sm" title="Course Content">
                 <Link to={`/admin/courses/${c.id}`}><ListTree className="w-4 h-4" /></Link>
               </Button>
-              
+
               <Button variant="outline" size="sm" onClick={() => openEdit(c)} title="Edit Course">
                 <Edit className="w-4 h-4" />
               </Button>
-              
+
               <Button variant="destructive" size="sm" onClick={() => remove(c.id)} title="Delete Course">
                 <Trash2 className="w-4 h-4" />
               </Button>
@@ -254,26 +363,73 @@ const AdminCourses = () => {
       <Dialog open={!!viewingCourseId} onOpenChange={(isOpen) => { if (!isOpen) setViewingCourseId(null); }}>
         <DialogContent className="bg-card max-h-[90vh] overflow-y-auto max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Enrolled Users ({filteredEnrollments.length})</DialogTitle>
+            <div className="flex items-center justify-between pr-6">
+              <DialogTitle>Enrolled Users ({filteredEnrollments.length})</DialogTitle>
+              {/* ─── Download Buttons ─── */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={downloadExcel}
+                  disabled={loadingEnrollments || filteredEnrollments.length === 0}
+                  className="gap-1.5 text-green-600 border-green-300 hover:bg-green-50 hover:text-green-700"
+                  title="Download as Excel"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={downloadPDF}
+                  disabled={loadingEnrollments || filteredEnrollments.length === 0}
+                  className="gap-1.5 text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700"
+                  title="Download as PDF"
+                >
+                  <FileText className="w-4 h-4" />
+                  PDF
+                </Button>
+              </div>
+            </div>
           </DialogHeader>
+
+          {/* Summary Stats Bar */}
+          {!loadingEnrollments && filteredEnrollments.length > 0 && (
+            <div className="grid grid-cols-3 gap-3 py-2 border-b border-border mb-2">
+              <div className="text-center">
+                <div className="text-lg font-bold text-green-600">₹{filteredEnrollments.reduce((s, e) => s + (e.amount_paid_inr || 0), 0).toLocaleString()}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Revenue</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-primary">{filteredEnrollments.length}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Enrollments</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-blue-600">
+                  {Math.round(filteredEnrollments.reduce((s, e) => s + e.completion_percentage, 0) / filteredEnrollments.length)}%
+                </div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Avg Completion</div>
+              </div>
+            </div>
+          )}
 
           {/* Date Filters */}
           <div className="grid grid-cols-2 gap-3 py-2 border-b border-border mb-2">
             <div>
               <Label className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" /> From</Label>
-              <Input 
-                type="date" 
-                value={filterStartDate} 
-                onChange={(e) => setFilterStartDate(e.target.value)} 
+              <Input
+                type="date"
+                value={filterStartDate}
+                onChange={(e) => setFilterStartDate(e.target.value)}
                 className="mt-1 h-9 text-sm"
               />
             </div>
             <div>
               <Label className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="w-3 h-3" /> To</Label>
-              <Input 
-                type="date" 
-                value={filterEndDate} 
-                onChange={(e) => setFilterEndDate(e.target.value)} 
+              <Input
+                type="date"
+                value={filterEndDate}
+                onChange={(e) => setFilterEndDate(e.target.value)}
                 className="mt-1 h-9 text-sm"
               />
             </div>
@@ -293,7 +449,7 @@ const AdminCourses = () => {
               {filteredEnrollments.map((enroll) => (
                 <div key={enroll.id} className="p-2.5 bg-background rounded-md border group">
                   <div className="flex items-center gap-3">
-                    
+
                     {/* Avatar Logic */}
                     <div className="w-9 h-9 rounded-full bg-secondary shrink-0 flex items-center justify-center text-sm font-bold text-muted-foreground overflow-hidden">
                       {enroll.profiles?.avatar_url ? (
@@ -308,14 +464,12 @@ const AdminCourses = () => {
                         {enroll.profiles?.display_name || 'Unnamed User'}
                       </div>
                       <div className="text-xs text-muted-foreground truncate">
-                        {/* Email rendered securely from Edge Function */}
-                        {emailMap[enroll.user_id] || '—'} 
+                        {emailMap[enroll.user_id] || '—'}
                         {enroll.profiles?.phone ? ` · ${enroll.profiles.phone}` : ''}
                       </div>
                     </div>
 
                     <div className="text-right shrink-0 ml-2">
-                      {/* Relative Price Display (Paid vs Total) */}
                       <div className="font-bold text-xs text-green-500 flex items-center justify-end gap-1">
                         <span>₹{(enroll.amount_paid_inr || 0).toLocaleString()}</span>
                         {coursePrice > 0 && enroll.amount_paid_inr < coursePrice && (
@@ -335,9 +489,9 @@ const AdminCourses = () => {
                     <span className="font-bold text-primary">{enroll.completion_percentage}%</span>
                   </div>
                   <div className="w-full h-1.5 bg-muted rounded-full mt-1 overflow-hidden">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-300 ${enroll.completion_percentage === 100 ? 'bg-green-500' : 'bg-primary'}`} 
-                      style={{ width: `${enroll.completion_percentage}%` }} 
+                    <div
+                      className={`h-full rounded-full transition-all duration-300 ${enroll.completion_percentage === 100 ? 'bg-green-500' : 'bg-primary'}`}
+                      style={{ width: `${enroll.completion_percentage}%` }}
                     />
                   </div>
                 </div>

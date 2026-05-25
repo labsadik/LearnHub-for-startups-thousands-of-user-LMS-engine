@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Loader2, Play, BookOpen, Tag, CheckCircle2, ArrowRight, Lock, Clock, Flame, Share2, Copy, Check, AlertTriangle } from 'lucide-react';
 import {
   Accordion,
@@ -47,15 +46,15 @@ const getOriginalPrice = (actualPrice: number, discountPercent: number): number 
   return Math.ceil(raw / 100) * 100;
 };
 
-const DEAL_DURATIONS_MONTHS = [4, 6, 8, 10, 12]; 
+const DEAL_DURATIONS_MONTHS = [4, 6, 8, 10, 12];
 const getCourseDeadline = (courseId: string): Date => {
   const now = new Date();
   const year = now.getFullYear();
   const seed = hashString(`${courseId}-deadline-${year}`);
   const monthsToAdd = DEAL_DURATIONS_MONTHS[seed % DEAL_DURATIONS_MONTHS.length];
   let deadline = new Date(year, 0 + monthsToAdd, 1, 0, 0, 0);
-  const dayOffset = (seed * 3) % 28; 
-  const hourOffset = (seed * 5) % 24; 
+  const dayOffset = (seed * 3) % 28;
+  const hourOffset = (seed * 5) % 24;
   deadline.setDate(deadline.getDate() + dayOffset);
   deadline.setHours(hourOffset);
   if (deadline.getTime() <= now.getTime()) deadline.setFullYear(deadline.getFullYear() + 1);
@@ -91,11 +90,8 @@ const CourseDetail = () => {
   const [enrolled, setEnrolled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [verifyingPayment, setVerifyingPayment] = useState(false);
-  
-  const [profile, setProfile] = useState<any>(null);
 
-  const [promo, setPromo] = useState('');
-  const [discount, setDiscount] = useState<{ amount: number; code: string; promocode_id: string } | null>(null);
+  const [profile, setProfile] = useState<any>(null);
   const [enrolling, setEnrolling] = useState(false);
   const [isDescExpanded, setIsDescExpanded] = useState(false);
 
@@ -152,13 +148,13 @@ const CourseDetail = () => {
       const { data: subjects } = await supabase.from('subjects').select('id, name, position, chapters(id, name, position, parts(id, name, video_id, notes_url, duration, position, is_preview))').eq('course_id', c.id).order('position');
       const sorted = (subjects || []).map((s: any) => ({ ...s, chapters: (s.chapters || []).sort((a: any, b: any) => a.position - b.position).map((ch: any) => ({ ...ch, parts: (ch.parts || []).sort((a: any, b: any) => a.position - b.position) })) }));
       setTree(sorted);
-      
+
       if (user) {
         const [enRes, profRes] = await Promise.all([
           supabase.from('enrollments').select('id').eq('user_id', user.id).eq('course_id', c.id).maybeSingle(),
           supabase.from('profiles').select('*').eq('user_id', user.id).single()
         ]);
-        
+
         if (enRes.data) setEnrolled(true);
         if (profRes.data) setProfile(profRes.data);
       }
@@ -172,115 +168,88 @@ const CourseDetail = () => {
     if (params.get('paid') !== '1' || !user || !course?.id) return;
     let cancelled = false;
     const verifyEnrollment = async () => {
-      setVerifyingPayment(true); 
+      setVerifyingPayment(true);
       toast.success('Payment successful! Verifying your enrollment…');
-      const checkEnroll = async () => { 
-        const { data: en } = await supabase.from('enrollments').select('id').eq('user_id', user.id).eq('course_id', course.id).maybeSingle(); 
-        return !!en; 
+      const checkEnroll = async () => {
+        const { data: en } = await supabase.from('enrollments').select('id').eq('user_id', user.id).eq('course_id', course.id).maybeSingle();
+        return !!en;
       };
       let isEnrolled = false;
-      for (let i = 0; i < 3; i++) { 
-        if (cancelled) return; 
-        isEnrolled = await checkEnroll(); 
-        if (isEnrolled) break; 
-        await new Promise((r) => setTimeout(r, 1500)); 
+      for (let i = 0; i < 3; i++) {
+        if (cancelled) return;
+        isEnrolled = await checkEnroll();
+        if (isEnrolled) break;
+        await new Promise((r) => setTimeout(r, 1500));
       }
       if (!isEnrolled) {
         try {
           const sessionId = params.get('session_id');
           const { data, error } = await supabase.functions.invoke('verify-enrollment', { body: { course_id: course.id, session_id: sessionId } });
-          if (!error && (data as any)?.enrolled) isEnrolled = true; 
-          else { 
-            let errorMessage = 'Unknown verification error'; 
-            if (error) { 
-              try { 
-                if (error.context && typeof error.context.json === 'function') { 
-                  const errBody = await error.context.json(); 
-                  errorMessage = errBody?.error || errBody?.details || errorMessage; 
-                } 
-              } catch { } 
-            } 
-            console.error('Manual verify failed:', errorMessage); 
-            toast.error(`Verification failed: ${errorMessage}`); 
+          if (!error && (data as any)?.enrolled) isEnrolled = true;
+          else {
+            let errorMessage = 'Unknown verification error';
+            if (error) {
+              try {
+                if (error.context && typeof error.context.json === 'function') {
+                  const errBody = await error.context.json();
+                  errorMessage = errBody?.error || errBody?.details || errorMessage;
+                }
+              } catch { }
+            }
+            console.error('Manual verify failed:', errorMessage);
+            toast.error(`Verification failed: ${errorMessage}`);
           }
         } catch (err: any) { console.error('Manual verify exception:', err); }
       }
-      if (!cancelled) { 
-        setEnrolled(isEnrolled); 
-        setVerifyingPayment(false); 
-        if (isEnrolled) { 
-          toast.success('You are now enrolled!'); 
-          window.history.replaceState({}, '', `/courses/${slug}`); 
-        } else { 
-          toast.error('Enrollment is taking longer than expected. Please contact support.'); 
-        } 
+      if (!cancelled) {
+        setEnrolled(isEnrolled);
+        setVerifyingPayment(false);
+        if (isEnrolled) {
+          toast.success('You are now enrolled!');
+          window.history.replaceState({}, '', `/courses/${slug}`);
+        } else {
+          toast.error('Enrollment is taking longer than expected. Please contact support.');
+        }
       }
     };
     verifyEnrollment();
     return () => { cancelled = true; };
   }, [slug, user, course?.id]);
 
-  const applyPromo = async () => {
-    if (!promo.trim()) return;
-    if (!user) {
-      toast.error('Please sign in to apply a promo code');
-      nav('/auth');
-      return;
-    }
-    
-    const { data, error } = await supabase.from('promocodes').select('*').eq('code', promo.trim().toUpperCase()).eq('is_active', true).maybeSingle();
-    if (error || !data) { toast.error('Invalid code'); return; }
-    if (data.expires_at && new Date(data.expires_at) < new Date()) { toast.error('Code expired'); return; }
-    if (data.max_uses && data.uses_count >= data.max_uses) { toast.error('Code exhausted'); return; }
-    if (data.course_id && data.course_id !== course.id) { toast.error('Code not valid for this course'); return; }
-
-    const { data: existingRedemption } = await supabase
-      .from('promocode_redemptions')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('course_id', course.id)
-      .eq('promocode_id', data.id)
-      .maybeSingle();
-
-    if (!existingRedemption) {
-      const { error: redeemError } = await supabase.from('promocode_redemptions').insert({
-        user_id: user.id,
-        course_id: course.id,
-        promocode_id: data.id,
-      });
-
-      if (redeemError) {
-        console.error('Redemption insert failed:', redeemError);
-        toast.error('Could not apply code. Please try again.');
-        return;
-      }
-    }
-
-    const amount = data.discount_type === 'percent' ? Math.round((course.price_inr * data.discount_value) / 100) : data.discount_value;
-    setDiscount({ amount: Math.min(amount, course.price_inr), code: data.code, promocode_id: data.id });
-    toast.success(`Saved ${formatPriceINR(Math.min(amount, course.price_inr))}!`);
+  // Helper to check profile completion
+  const checkProfileCompletion = (p: any) => {
+    if (!p) return { isComplete: false, missing: ["Profile data"] };
+    const missing: string[] = [];
+    if (!p.display_name) missing.push("Name");
+    if (!p.phone) missing.push("Phone");
+    if (!p.avatar_url) missing.push("Photo");
+    if (!p.gender) missing.push("Gender");
+    if (!p.date_of_birth) missing.push("DOB");
+    if (!p.language) missing.push("Language");
+    if (!p.address) missing.push("Address");
+    if (!p.city) missing.push("City");
+    if (!p.state) missing.push("State");
+    if (!p.country) missing.push("Country");
+    if (!p.pincode) missing.push("Pincode");
+    return { isComplete: missing.length === 0, missing };
   };
 
   const handleEnroll = async () => {
-    if (!user) { 
-      nav('/auth'); 
-      return; 
+    if (!user) {
+      nav('/auth');
+      return;
     }
 
-    if (!course?.id) { 
-      toast.error('Course information is missing.'); 
-      return; 
+    if (!course?.id) {
+      toast.error('Course information is missing.');
+      return;
     }
 
-    const missingFields: string[] = [];
-
-    if (!user?.email) missingFields.push("Email Address");
-    if (!profile?.display_name || profile.display_name.trim() === "") missingFields.push("Display Name");
-    if (!profile?.phone || profile.phone.trim() === "") missingFields.push("Phone Number");
-
-    if (missingFields.length > 0) {
+    // Check Profile Completion
+    const { isComplete, missing } = checkProfileCompletion(profile);
+    if (!isComplete) {
       toast.error('Profile Incomplete', {
-        description: `Please complete your profile before buying. Missing: ${missingFields.join(', ')}.`,
+        description: `Please complete your profile (100%) before buying. Missing: ${missing.slice(0, 3).join(', ')}...`,
         icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
         action: {
           label: "Complete Profile",
@@ -291,40 +260,24 @@ const CourseDetail = () => {
     }
 
     setEnrolling(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-        body: { course_id: course.id, promocode_id: discount?.promocode_id || undefined, success_url: `${window.location.origin}/courses/${course.slug}?paid=1`, cancel_url: `${window.location.origin}/courses/${course.slug}?canceled=1` },
-      });
-      if (error) { 
-        let errorMessage = 'Could not start checkout.'; 
-        try { 
-          if (error.context) { 
-            const b = await error.context.json(); 
-            if (b?.error) errorMessage = b.error; 
-          } 
-        } catch { } 
-        toast.error(errorMessage); 
-        return; 
+    // Navigate to checkout
+    nav('/checkout', {
+      state: {
+        courseId: course.id
       }
-      const result = data as any;
-      if (result?.error) toast.error(result.error);
-      else if (result?.already_enrolled) { setEnrolled(true); toast.success('Already enrolled'); }
-      else if (result?.free) { setEnrolled(true); toast.success('Enrolled!'); }
-      else if (result?.url) { window.location.href = result.url; }
-      else toast.error('Unexpected response.');
-    } catch (err: any) { toast.error(err.message || 'Error.'); } finally { setEnrolling(false); }
+    });
   };
 
   const handleLockedClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (!user) { 
-      nav('/auth'); 
-      toast.info('Please login to access locked lectures'); 
-      return; 
+    if (!user) {
+      nav('/auth');
+      toast.info('Please login to access locked lectures');
+      return;
     }
-    if (!enrolled) { 
-      toast.info('Please enroll to access this lecture'); 
-      return; 
+    if (!enrolled) {
+      toast.info('Please enroll to access this lecture');
+      return;
     }
   };
 
@@ -346,9 +299,6 @@ const CourseDetail = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const finalPrice = Math.max(0, (course?.price_inr ?? 0) - (discount?.amount || 0));
-  const totalSavings = (discountDisplay.original ?? 0) - finalPrice;
-
   if (loading) return (<div className="flex-1 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>);
   if (!course) return (<div className="flex-1 flex items-center justify-center text-muted-foreground">Course not found</div>);
 
@@ -365,7 +315,7 @@ const CourseDetail = () => {
 
       <div className="max-w-7xl w-full mx-auto px-4 py-6 sm:py-10">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
+
           {/* ═══════ LEFT COLUMN ═══════ */}
           <div className="lg:col-span-2 space-y-8 order-2 lg:order-1">
             <div className="anim-up">
@@ -430,23 +380,16 @@ const CourseDetail = () => {
                                 <ul className="space-y-0.5 ml-1 mt-1">
                                   {ch.parts.map((p: any) => {
                                     const isUnlocked = enrolled || p.is_preview;
-                                    
+
                                     return (
                                       <li key={p.id}>
                                         <Link
                                           to={isUnlocked ? `/learn/${course.slug}?part=${p.id}` : '#'}
                                           onClick={(e) => { if (!isUnlocked) handleLockedClick(e); }}
-                                          className={`group flex items-center gap-3 py-2 px-3 rounded-lg transition-colors ${
-                                            isUnlocked 
-                                              ? 'hover:bg-primary/5 cursor-pointer' 
-                                              : 'opacity-60 hover:opacity-100 hover:bg-muted/50 cursor-pointer'
-                                          }`}
+                                          className={`group flex items-center gap-3 py-2 px-3 rounded-lg transition-colors ${isUnlocked ? 'hover:bg-primary/5 cursor-pointer' : 'opacity-60 hover:opacity-100 hover:bg-muted/50 cursor-pointer'
+                                            }`}
                                         >
-                                          <div className={`w-5 h-5 flex items-center justify-center shrink-0 rounded-full ${
-                                            isUnlocked 
-                                              ? 'bg-primary/10 text-primary' 
-                                              : 'bg-muted text-muted-foreground'
-                                          }`}>
+                                          <div className={`w-5 h-5 flex items-center justify-center shrink-0 rounded-full ${isUnlocked ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
                                             {isUnlocked ? <Play className="w-3 h-3 fill-current" /> : <Lock className="w-2.5 h-2.5" />}
                                           </div>
                                           <span className={`flex-1 text-sm truncate ${isUnlocked ? 'text-foreground' : 'text-muted-foreground'}`}>
@@ -456,7 +399,6 @@ const CourseDetail = () => {
                                             {p.duration && (
                                               <span className="text-[11px] text-muted-foreground tabular-nums">{p.duration}</span>
                                             )}
-                                            {/* Hide tags completely if the user is already enrolled */}
                                             {!enrolled && (
                                               p.is_preview ? (
                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600">
@@ -555,17 +497,11 @@ const CourseDetail = () => {
                       {course.price_inr > 0 ? (
                         <>
                           <div className="flex items-baseline gap-3 flex-wrap">
-                            <span className="text-3xl font-extrabold text-foreground tracking-tight">{formatPriceINR(finalPrice)}</span>
+                            <span className="text-3xl font-extrabold text-foreground tracking-tight">{formatPriceINR(course.price_inr)}</span>
                             <span className="text-base text-muted-foreground line-through decoration-red-400/60 decoration-2">{formatPriceINR(discountDisplay.original)}</span>
                           </div>
-                          {discount && discount.amount > 0 && (
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className="text-muted-foreground line-through text-xs">{formatPriceINR(course.price_inr)}</span>
-                              <span className="text-green-600 font-semibold text-[11px] bg-green-500/10 px-2 py-0.5 rounded-full">+ Extra {formatPriceINR(discount.amount)} off</span>
-                            </div>
-                          )}
                           <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
-                            <Tag className="w-3 h-3" /> You save {formatPriceINR(totalSavings)} on this course
+                            <Tag className="w-3 h-3" /> You save {formatPriceINR(discountDisplay.savings)} on this course
                           </p>
                         </>
                       ) : (
@@ -573,26 +509,10 @@ const CourseDetail = () => {
                       )}
                     </div>
 
-                    {course.price_inr > 0 && (
-                      <div className="flex gap-2">
-                        <Input value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="Promo code" className="text-sm h-10" onKeyDown={(e) => e.key === 'Enter' && applyPromo()} />
-                        <Button variant="outline" size="sm" onClick={applyPromo} className="h-10 px-3 shrink-0">
-                          <Tag className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    )}
-
-                    {discount && (
-                      <div className="flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2 text-sm">
-                        <span className="font-medium text-green-700">Code: {discount.code}</span>
-                        <button onClick={() => setDiscount(null)} className="text-green-600 hover:text-red-500 text-xs font-semibold transition-colors">Remove</button>
-                      </div>
-                    )}
-
                     <Button className="w-full h-12 text-base font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all" size="lg" onClick={handleEnroll} disabled={enrolling}>
-                      {enrolling ? (<Loader2 className="w-5 h-5 animate-spin" />) : !user ? ('Sign in to Enroll') : finalPrice === 0 ? ('Enroll for Free') : ('Buy Now')}
+                      {enrolling ? (<Loader2 className="w-5 h-5 animate-spin" />) : !user ? ('Sign in to Enroll') : course.price_inr === 0 ? ('Enroll for Free') : ('Buy Now')}
                     </Button>
-                    
+
                     {!user && (<p className="text-[11px] text-muted-foreground text-center leading-relaxed">Sign in to enroll and track your progress.</p>)}
                   </>
                 )}
@@ -601,7 +521,7 @@ const CourseDetail = () => {
                 <div className="pt-2 border-t border-border/40">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-muted-foreground">Share this course</span>
-                    
+
                     {typeof navigator.share === 'function' ? (
                       <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleNativeShare}>
                         <Share2 className="w-3.5 h-3.5" /> Share
@@ -616,15 +536,15 @@ const CourseDetail = () => {
                         <PopoverContent className="w-auto p-2 shadow-xl" align="end">
                           <div className="grid grid-cols-4 gap-1">
                             <a href={`https://wa.me/?text=${encodeURIComponent(shareText + ' ' + courseUrl)}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
-                              <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                              <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" /></svg>
                               <span className="text-[9px] mt-1 font-medium">WhatsApp</span>
                             </a>
                             <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(courseUrl)}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
-                              <svg className="w-5 h-5 text-foreground" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                              <svg className="w-5 h-5 text-foreground" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" /></svg>
                               <span className="text-[9px] mt-1 font-medium">X</span>
                             </a>
                             <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseUrl)}`} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">
-                              <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                              <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" /></svg>
                               <span className="text-[9px] mt-1 font-medium">LinkedIn</span>
                             </a>
                             <button onClick={copyToClipboard} className="flex flex-col items-center justify-center p-2 rounded-md hover:bg-muted transition-colors">

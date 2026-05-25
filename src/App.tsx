@@ -11,6 +11,7 @@ import Home from "./pages/Home";
 import Auth from "./pages/Auth";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
+import Checkout from "./pages/Checkout"; // ✅ FIXED: Corrected import name spelling
 import Learn from "./pages/Learn";
 import Study from "./pages/Study";
 import Dashboard from "./pages/Dashboard";
@@ -45,6 +46,10 @@ const App = () => (
               <Route path="/auth" element={<Layout><Auth /></Layout>} />
               <Route path="/courses" element={<Layout><Courses /></Layout>} />
               <Route path="/courses/:slug" element={<Layout><CourseDetail /></Layout>} />
+              
+              {/* ✅ MOVED: Checkout route moved outside of Admin block */}
+              <Route path="/checkout" element={<RequireAuth><Layout><Checkout /></Layout></RequireAuth>} />
+
               <Route path="/learn/:slug" element={<RequireAuth><Layout><Learn /></Layout></RequireAuth>} />
               <Route path="/study" element={<RequireAuth><Layout><Study /></Layout></RequireAuth>} />
               <Route path="/dashboard" element={<RequireAuth><Layout><Dashboard /></Layout></RequireAuth>} />
@@ -53,6 +58,7 @@ const App = () => (
               <Route path="/rewards" element={<RequireAuth><Layout><Rewards /></Layout></RequireAuth>} />
               <Route path="/test/:id" element={<RequireAuth><Layout><TestPage /></Layout></RequireAuth>} />
               <Route path="/leaderboard/:slug" element={<Layout><Leaderboard /></Layout>} />
+              
               <Route path="/admin" element={<RequireAdmin><Layout><AdminLayout /></Layout></RequireAdmin>}>
                 <Route index element={<AdminOverview />} />
                 <Route path="courses" element={<AdminCourses />} />
@@ -63,6 +69,7 @@ const App = () => (
                 <Route path="tests" element={<AdminTests />} />
                 <Route path="announcements" element={<AdminAnnouncements />} />
               </Route>
+              
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>

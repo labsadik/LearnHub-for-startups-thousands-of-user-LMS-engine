@@ -130,6 +130,8 @@ export default function TabMobileNavbar() {
   if (!user) return null;
 
   const path = location.pathname;
+  
+  // Updated Whitelist: Removed '/test/' to hide navbar during exam
   const isWhitelisted =
     path === '/study' ||
     path.startsWith('/study/') ||
@@ -137,8 +139,7 @@ export default function TabMobileNavbar() {
     path.startsWith('/dashboard/') ||
     path === '/profile' ||
     path.startsWith('/profile/') ||
-    path.startsWith('/test/') ||
-    path.startsWith('/learn/');
+    path.startsWith('/learn/'); // Kept learn, as Header also hides there but users might want nav access
 
   if (!isWhitelisted) return null;
 

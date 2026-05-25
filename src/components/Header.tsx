@@ -298,9 +298,11 @@ const HeaderContent = ({ pathname }: { pathname: string }) => {
 
 const Header = () => {
   const loc = useLocation();
+  // Hide header on Learn, Admin, Test, and Auth pages
   if (
     loc.pathname.startsWith('/learn/') ||
     loc.pathname.startsWith('/admin') ||
+    loc.pathname.startsWith('/test/') || // Added this line to hide header during test
     loc.pathname === '/auth' ||
     loc.pathname.startsWith('/auth/')
   ) return null;

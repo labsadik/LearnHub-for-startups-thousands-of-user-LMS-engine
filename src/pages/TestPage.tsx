@@ -4,12 +4,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import {
-  Loader2, Clock, Trophy, CheckCircle2, XCircle, Coins,
-  ChevronLeft, ChevronRight, LayoutGrid, X, AlertTriangle,
-  ArrowLeft, Target, Zap, ShieldCheck, RotateCcw, BookOpen,
-  SkipForward,
+  Loader2, Clock, Trophy, CheckCircle2, XCircle,
+  ChevronLeft, ChevronRight, X, AlertTriangle,
+  ArrowLeft, Target, RotateCcw, BookOpen,
+  Maximize2, User, Menu
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSEO } from '@/lib/seo';
@@ -23,15 +22,7 @@ interface Test {
   title: string;
   duration_minutes: number;
   pass_score: number;
-  scope: string;
   [k: string]: unknown;
-}
-
-interface QuestionOption {
-  id: string;
-  text: string;
-  position: number;
-  is_correct: boolean;
 }
 
 interface Question {
@@ -39,270 +30,145 @@ interface Question {
   text: string;
   image_url: string | null;
   marks: number;
-  position: number;
-  question_options: QuestionOption[];
+  question_options: { id: string; text: string; is_correct: boolean; position: number }[];
 }
 
 interface Result {
-  score: number;
-  total: number;
-  pct: number;
-  passed: boolean;
-  correct: number;
-  wrong: number;
-  coins_delta: number;
-  xp_delta: number;
-  locked: boolean;
+  score: number; total: number; pct: number; passed: boolean; correct: number; wrong: number; coins_delta: number; xp_delta: number; locked: boolean;
 }
 
-/* ════════════════════════════════════════════════════════
-   Skeleton
-   ════════════════════════════════════════════════════════ */
-function TestSkeleton() {
-  return (
-    <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full min-h-0">
-      <header className="px-4 md:px-6 py-3 border-b border-border/30 bg-card/50">
-        <div className="flex justify-between items-center gap-3">
-          <div className="h-5 w-48 rounded-md bg-muted animate-pulse" />
-          <div className="h-8 w-20 rounded-md bg-muted animate-pulse" />
-        </div>
-        <div className="flex items-center gap-3 mt-2.5">
-          <div className="h-1.5 flex-1 rounded-full bg-muted animate-pulse" />
-          <div className="h-4 w-8 rounded bg-muted animate-pulse" />
-        </div>
-      </header>
-      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6">
-        <div className="h-4 w-24 mx-auto rounded bg-muted animate-pulse mb-6" />
-        <div className="rounded-xl border border-border/30 p-5 space-y-4">
-          <div className="flex gap-3">
-            <div className="w-6 h-6 rounded bg-muted animate-pulse shrink-0" />
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-full rounded bg-muted animate-pulse" />
-              <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
-            </div>
-          </div>
-          <div className="space-y-2.5 pt-2">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-border/20">
-                <div className="w-5 h-5 rounded-full border-2 border-muted animate-pulse shrink-0" />
-                <div className="h-4 flex-1 rounded bg-muted animate-pulse" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="border-t border-border/30 px-4 md:px-6 py-3">
-        <div className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
-          <div className="h-9 w-20 rounded-lg bg-muted animate-pulse" />
-          <div className="flex-1" />
-          <div className="h-9 w-24 rounded-lg bg-muted animate-pulse" />
-        </div>
-      </div>
-    </div>
-  );
-}
+interface UserProfile { display_name: string | null; avatar_url: string | null; }
 
 /* ════════════════════════════════════════════════════════
-   Confirm Dialog
+   Helpers
    ════════════════════════════════════════════════════════ */
-function ConfirmDialog({
-  open,
-  onConfirm,
-  onCancel,
-  title,
-  description,
-  confirmText = "Submit",
-  variant = "default",
-}: {
-  open: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-  title: string;
-  description: string;
-  confirmText?: string;
-  variant?: "default" | "warning";
-}) {
-  if (!open) return null;
+const enterFullscreen = () => {
+  const elem = document.documentElement;
+  if (elem.requestFullscreen) elem.requestFullscreen();
+  // @ts-ignore
+  else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+};
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
-      <div
-        className="relative bg-card border border-border/50 rounded-2xl p-5 sm:p-6 w-full max-w-sm shadow-xl"
-        style={{ animation: 'scaleIn .2s ease-out' }}
-      >
-        <style>{`@keyframes scaleIn{from{transform:scale(.95);opacity:0}to{transform:scale(1);opacity:1}}`}</style>
-        <div className={cn(
-          "w-11 h-11 rounded-xl flex items-center justify-center mb-4",
-          variant === "warning" ? "bg-amber-100 dark:bg-amber-900/30" : "bg-primary/10",
-        )}>
-          {variant === "warning"
-            ? <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-            : <Target className="w-5 h-5 text-primary" />
-          }
-        </div>
-        <h3 className="font-semibold text-base text-foreground mb-1.5">{title}</h3>
-        <p className="text-sm text-muted-foreground leading-relaxed mb-6">{description}</p>
-        <div className="flex flex-col-reverse sm:flex-row gap-2">
-          <Button variant="outline" onClick={onCancel} className="w-full sm:w-auto h-10 rounded-lg text-sm">
-            Cancel
-          </Button>
-          <Button
-            onClick={onConfirm}
-            className={cn(
-              "w-full sm:w-auto h-10 rounded-lg text-sm font-medium",
-              variant === "warning" && "bg-amber-600 hover:bg-amber-700 text-white",
-            )}
-          >
-            {confirmText}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const exitFullscreen = () => {
+  if (document.exitFullscreen) document.exitFullscreen();
+  // @ts-ignore
+  else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+};
 
 /* ════════════════════════════════════════════════════════
-   Timer Display
+   Sub-Components
    ════════════════════════════════════════════════════════ */
-const TimerDisplay = memo(function TimerDisplay({ seconds }: { seconds: number }) {
+
+const TimerDisplay = memo(({ seconds }: { seconds: number }) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
-  const isWarning = seconds < 120;
-  const isCritical = seconds < 30;
-
   return (
     <div className={cn(
-      "flex items-center gap-1.5 sm:gap-2 font-mono px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-lg border transition-all duration-300",
-      isCritical
-        ? "bg-destructive/15 border-destructive/30 text-destructive animate-pulse"
-        : isWarning
-          ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-400"
-          : "bg-muted/50 border-border/40 text-foreground",
+      "flex items-center gap-2 font-mono px-3 py-1.5 rounded-lg border text-sm font-bold transition-all",
+      seconds < 60 ? "bg-red-500/10 border-red-500/30 text-red-600 animate-pulse" :
+      seconds < 300 ? "bg-amber-500/10 border-amber-500/30 text-amber-600" :
+      "bg-muted/50 border-border text-foreground"
     )}>
-      <Clock className={cn("w-3.5 h-3.5 sm:w-4 sm:h-4", isCritical && "animate-spin")} />
-      <span className="text-xs sm:text-sm font-semibold tabular-nums">
-        {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-      </span>
+      <Clock className="w-4 h-4" />
+      {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
     </div>
   );
 });
 
-/* ════════════════════════════════════════════════════════
-   Option Badge
-   ════════════════════════════════════════════════════════ */
-function OptionBadge({ letter, selected }: { letter: string; selected: boolean }) {
-  return (
-    <span className={cn(
-      "w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 transition-all duration-200",
-      selected ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted/60 text-muted-foreground",
-    )}>
-      {letter}
-    </span>
-  );
-}
-
-/* ════════════════════════════════════════════════════════
-   Question Grid
-   ════════════════════════════════════════════════════════ */
-const QuestionGrid = memo(function QuestionGrid({
-  questions,
-  answers,
-  currentQ,
-  onSelect,
-  onClose,
-  onSubmit,
-  canSubmit,
-  submitting,
+// Fixed Component: Added isMobile to props
+const QuestionPalette = memo(({
+  questions, answers, currentQ, onSelect, onClose, profile, userId, onSubmit, isMobile
 }: {
   questions: Question[];
   answers: Record<string, string>;
   currentQ: number;
   onSelect: (idx: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  profile: UserProfile | null;
+  userId: string;
   onSubmit: () => void;
-  canSubmit: boolean;
-  submitting: boolean;
-}) {
+  isMobile?: boolean;
+}) => {
   const answeredCount = Object.keys(answers).length;
+  const notAnswered = questions.length - answeredCount;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className="relative bg-card border border-border/50 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] overflow-hidden flex flex-col shadow-2xl"
-        onClick={e => e.stopPropagation()}
-        style={{ animation: 'slideUp .25s ease-out' }}
-      >
-        <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border/30">
-          <div>
-            <h3 className="font-semibold text-sm text-foreground">Question Navigator</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{answeredCount} of {questions.length} answered</p>
-          </div>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onClose}>
-            <X className="w-4 h-4" />
-          </Button>
+    <div className="flex flex-col h-full bg-card border-l border-border/50">
+      {/* Header / Profile */}
+      <div className="p-5 border-b border-border/50 bg-muted/30 shrink-0">
+        <div className="flex items-center justify-between mb-4">
+           <div className="flex items-center gap-3">
+             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden border border-border">
+               {profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" alt="Profile" /> : <User className="w-5 h-5 text-primary"/>}
+             </div>
+             <div>
+               <p className="text-sm font-semibold text-foreground">{profile?.display_name || 'Candidate'}</p>
+               <p className="text-xs text-muted-foreground font-mono">ID: {userId.substring(0, 8).toUpperCase()}</p>
+             </div>
+           </div>
+           {/* Conditionally render Close button for Mobile */}
+           {isMobile && onClose && (
+             <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" onClick={onClose}>
+               <X className="w-5 h-5" />
+             </Button>
+           )}
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
-          <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
-            {questions.map((q, i) => {
-              const isAnswered = !!answers[q.id];
-              const isCurrent = i === currentQ;
-              return (
-                <button
-                  key={q.id}
-                  onClick={() => onSelect(i)}
-                  className={cn(
-                    "aspect-square rounded-lg text-xs font-bold transition-all duration-150 active:scale-95",
-                    isCurrent
-                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 scale-105 ring-2 ring-primary/30"
-                      : isAnswered
-                        ? "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/20"
-                        : "bg-muted/40 text-muted-foreground/70 border border-border/30 hover:bg-muted/60",
-                  )}
-                >
-                  {i + 1}
-                </button>
-              );
-            })}
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
+            <span className="block font-bold text-primary text-base">{answeredCount}</span>
+            <span className="text-muted-foreground">Answered</span>
           </div>
-          <div className="flex items-center gap-4 mt-4 text-[11px] text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-primary shadow-sm" /> Current
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-primary/15 border border-primary/25" /> Answered
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded bg-muted/40 border border-border/30" /> Unanswered
-            </span>
+          <div className="p-2 rounded-lg bg-orange-500/10 border border-orange-500/20">
+            <span className="block font-bold text-orange-600 text-base">{notAnswered}</span>
+            <span className="text-muted-foreground">Skipped</span>
           </div>
-        </div>
-        <div className="px-5 py-4 border-t border-border/30 bg-muted/20">
-          <Button onClick={onSubmit} disabled={!canSubmit || submitting} className="w-full h-11 rounded-lg text-sm font-medium">
-            {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Target className="w-4 h-4 mr-2" />}
-            Submit Test ({answeredCount}/{questions.length})
-          </Button>
+           <div className="p-2 rounded-lg bg-muted border border-border">
+             <span className="block font-bold text-foreground text-base">{questions.length}</span>
+             <span className="text-muted-foreground">Total</span>
+           </div>
         </div>
       </div>
+
+      {/* Question Grid */}
+      <div className="flex-1 overflow-y-auto p-5">
+        <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Question Navigator</p>
+        <div className="grid grid-cols-5 gap-2">
+          {questions.map((q, i) => {
+            const isAnswered = !!answers[q.id];
+            const isCurrent = i === currentQ;
+            return (
+              <button
+                key={q.id}
+                onClick={() => { onSelect(i); if(isMobile && onClose) onClose(); }}
+                className={cn(
+                  "aspect-square rounded-md text-sm font-bold transition-all relative focus:z-10",
+                  "border border-border",
+                  isCurrent && "ring-2 ring-primary ring-offset-2 ring-offset-background z-10 scale-105 shadow-sm",
+                  isAnswered ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-muted"
+                )}
+              >
+                {i + 1}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer Action - Only for Mobile */}
+      {isMobile && onClose && (
+        <div className="p-4 border-t border-border/50 bg-background shrink-0">
+          <Button onClick={onSubmit} className="w-full h-12 text-base bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold shadow-md">
+            <CheckCircle2 className="w-5 h-5 mr-2" /> Submit Test
+          </Button>
+        </div>
+      )}
     </div>
   );
 });
 
-/* ════════════════════════════════════════════════════════
-   Review Card
-   ════════════════════════════════════════════════════════ */
-const ReviewCard = memo(function ReviewCard({
-  question,
-  index,
-  selectedOptionId,
-}: {
-  question: Question;
-  index: number;
-  selectedOptionId?: string;
-}) {
+const ReviewCard = memo(({ question, index, selectedOptionId }: { question: Question; index: number; selectedOptionId?: string }) => {
   const correctOpt = question.question_options.find(o => o.is_correct);
   const yourOpt = question.question_options.find(o => o.id === selectedOptionId);
   const isCorrect = yourOpt?.id === correctOpt?.id;
@@ -310,43 +176,28 @@ const ReviewCard = memo(function ReviewCard({
 
   return (
     <div className={cn(
-      "rounded-xl border p-4 sm:p-5 transition-colors",
-      isCorrect
-        ? "border-green-300/50 dark:border-green-700/40 bg-green-50/40 dark:bg-green-950/10"
-        : isSkipped
-          ? "border-border/40 bg-card"
-          : "border-red-300/50 dark:border-red-700/40 bg-red-50/40 dark:bg-red-950/10",
+      "rounded-xl border p-5 transition-colors",
+      isCorrect ? "border-green-300/50 bg-green-50/40 dark:bg-green-950/10" :
+      isSkipped ? "border-border/40 bg-card" : "border-red-300/50 bg-red-50/40 dark:bg-red-950/10"
     )}>
       <div className="flex items-start gap-3 mb-3">
-        <span className="text-xs font-bold text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-md shrink-0 mt-0.5">
+        <span className="text-xs font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded-md shrink-0 mt-0.5">
           Q{index + 1}
         </span>
         <p className="text-sm font-medium text-foreground leading-relaxed flex-1 break-words">{question.text}</p>
         <div className="shrink-0 mt-0.5">
-          {isCorrect ? (
-            <CheckCircle2 className="w-5 h-5 text-green-500" />
-          ) : isSkipped ? (
-            <SkipForward className="w-5 h-5 text-muted-foreground/40" />
-          ) : (
-            <XCircle className="w-5 h-5 text-red-500" />
-          )}
+          {isCorrect ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : isSkipped ? <AlertTriangle className="w-5 h-5 text-muted-foreground/40" /> : <XCircle className="w-5 h-5 text-red-500" />}
         </div>
       </div>
-      {question.image_url && (
-        <img src={question.image_url} alt="" loading="lazy" className="mt-2 mb-3 max-h-40 rounded-lg w-auto ml-9" />
-      )}
-      <div className="ml-9 space-y-1.5 text-xs">
+      <div className="ml-9 space-y-1.5 text-sm">
         {!isCorrect && (
-          <div className={cn(
-            "flex items-start gap-2 px-3 py-2 rounded-lg",
-            isSkipped ? "bg-muted/40 text-muted-foreground" : "bg-red-100/60 dark:bg-red-950/20 text-red-600 dark:text-red-400",
-          )}>
+          <div className={cn("flex items-start gap-2 px-3 py-2 rounded-lg", isSkipped ? "bg-muted/40 text-muted-foreground italic" : "bg-red-100/60 text-red-600")}>
             <span className="font-medium shrink-0">Your answer:</span>
-            <span className={isSkipped ? "italic" : ""}>{yourOpt?.text || "Skipped"}</span>
+            <span>{yourOpt?.text || "Skipped"}</span>
           </div>
         )}
         {(!isCorrect || !isSkipped) && correctOpt && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-green-100/60 dark:bg-green-950/20 text-green-600 dark:text-green-400">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-green-100/60 text-green-600">
             <span className="font-medium shrink-0">Correct:</span>
             <span>{correctOpt.text}</span>
           </div>
@@ -356,6 +207,23 @@ const ReviewCard = memo(function ReviewCard({
   );
 });
 
+const ConfirmDialog = ({ open, onConfirm, onCancel, title, description, confirmText = "Submit", variant = "default" }: any) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-card border border-border/50 rounded-2xl p-6 w-full max-w-sm shadow-xl" style={{ animation: 'scaleIn .2s ease-out' }}>
+        <h3 className="font-semibold text-lg text-foreground mb-1.5">{title}</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-6">{description}</p>
+        <div className="flex flex-col-reverse sm:flex-row gap-2">
+          <Button variant="outline" onClick={onCancel} className="w-full h-11 text-sm">Cancel</Button>
+          <Button onClick={onConfirm} className={cn("w-full h-11 text-sm", variant === "warning" && "bg-amber-600 hover:bg-amber-700 text-white")}>{confirmText}</Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 /* ════════════════════════════════════════════════════════
    MAIN TEST PAGE
    ════════════════════════════════════════════════════════ */
@@ -364,7 +232,6 @@ const TestPage = () => {
   const { user } = useAuth();
   const nav = useNavigate();
 
-  // ── All state declarations first ──
   const [test, setTest] = useState<Test | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -372,366 +239,344 @@ const TestPage = () => {
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [reattempting, setReattempting] = useState(false);
   const [currentQ, setCurrentQ] = useState(0);
-  const [showGrid, setShowGrid] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isExamMode, setIsExamMode] = useState(false);
+  const [showMobilePalette, setShowMobilePalette] = useState(false);
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const submitRef = useRef<(force?: boolean) => Promise<void>>();
 
-  useSEO({ title: test ? `${test.title} — Test` : 'Test', description: 'Take your assessment test.' });
+  useSEO({ title: test ? `${test.title} — Test` : 'Test', description: 'Assessment' });
 
-  /* ── Load Test ── */
+  /* ── Load Data ── */
   const loadTest = useCallback(async (forceFresh = false) => {
     if (!user || !id) return;
     setLoading(true);
-    setCurrentQ(0);
+    setIsExamMode(false);
+
+    const { data: pData } = await supabase.from('profiles').select('display_name, avatar_url').eq('user_id', user.id).maybeSingle();
+    if (pData) setUserProfile(pData);
 
     const { data: t } = await supabase.from('tests').select('*').eq('id', id).maybeSingle();
-    if (!t) { toast.error('Test not found or not accessible'); nav(-1); return; }
+    if (!t) { toast.error('Test not found'); nav(-1); return; }
     setTest(t as Test);
 
-    const { data: qs } = await supabase
-      .from('questions')
-      .select('id, text, image_url, marks, position, question_options(id, text, position, is_correct)')
-      .eq('test_id', id)
-      .order('position');
-
-    const sorted = (qs || []).map((q: any) => ({
-      ...q,
-      question_options: (q.question_options || []).sort((a: any, b: any) => a.position - b.position),
-    })) as Question[];
-
+    const { data: qs } = await supabase.from('questions').select('*, question_options(*)').eq('test_id', id).order('position');
+    const sorted = (qs || []).map((q: any) => ({ ...q, question_options: (q.question_options || []).sort((a: any, b: any) => a.position - b.position) })) as Question[];
     setQuestions(sorted);
     setSecondsLeft((t as Test).duration_minutes * 60);
     setAnswers({});
 
     if (!forceFresh) {
-      const { data: lastAttempt } = await supabase
-        .from('test_attempts')
-        .select('id, score, total, passed, finished_at')
-        .eq('user_id', user.id).eq('test_id', id)
-        .not('finished_at', 'is', null)
-        .order('finished_at', { ascending: false })
-        .limit(1).maybeSingle();
-
-      if (lastAttempt) {
-        const { data: ans } = await supabase
-          .from('test_answers')
-          .select('question_id, selected_option_id, is_correct')
-          .eq('attempt_id', lastAttempt.id);
-
-        const ansMap: Record<string, string> = {};
-        let correct = 0;
-        let wrong = 0;
-        for (const a of ans || []) {
-          if (a.selected_option_id) ansMap[a.question_id] = a.selected_option_id;
-          if (a.is_correct) correct++;
-          else if (a.selected_option_id) wrong++;
-        }
-        setAnswers(ansMap);
-        const pct = lastAttempt.total > 0 ? Math.round((lastAttempt.score / lastAttempt.total) * 100) : 0;
-        setResult({ score: lastAttempt.score, total: lastAttempt.total, pct, passed: lastAttempt.passed, correct, wrong, coins_delta: 0, xp_delta: 0, locked: true });
-        setLoading(false);
-        return;
+      const { data: last } = await supabase.from('test_attempts').select('*').eq('user_id', user.id).eq('test_id', id).not('finished_at', 'is', null).order('finished_at', { ascending: false }).limit(1).maybeSingle();
+      if (last) {
+        const { data: ans } = await supabase.from('test_answers').select('question_id, selected_option_id, is_correct').eq('attempt_id', last.id);
+        const map: Record<string, string> = {};
+        let c = 0, w = 0;
+        (ans || []).forEach((a: any) => { if (a.selected_option_id) map[a.question_id] = a.selected_option_id; a.is_correct ? c++ : w++; });
+        setAnswers(map);
+        setResult({ score: last.score, total: last.total, pct: Math.round((last.score / last.total) * 100), passed: last.passed, correct: c, wrong: w, coins_delta: 0, xp_delta: 0, locked: true });
       }
     }
-    setResult(null);
     setLoading(false);
   }, [id, user, nav]);
 
-  /* ── Submit (declared BEFORE effects that use it) ── */
+  /* ── Submit ── */
   const submit = useCallback(async (force = false) => {
     if (!user || !test || submitting) return;
-    const answered = Object.keys(answers).length;
-    if (!force && answered < questions.length) {
-      setShowConfirm(true);
-      return;
-    }
+    if (!force && Object.keys(answers).length < questions.length) { setShowConfirm(true); return; }
+    
     setSubmitting(true);
-    setShowConfirm(false);
     try {
       const { data, error } = await supabase.functions.invoke('grade-test', { body: { test_id: test.id, answers } });
-      if (error) { toast.error(error.message || 'Could not submit test'); return; }
-      if (!data || data.error) { toast.error(data?.error || 'Could not submit test'); return; }
+      if (error || data?.error) throw new Error(data?.error || error?.message);
+      
+      exitFullscreen();
+      setIsExamMode(false);
       setResult(data);
       toast.success('Test submitted!');
     } catch (e: any) {
-      toast.error(e.message || 'Network error');
+      toast.error(e.message || 'Failed to submit');
     } finally {
       setSubmitting(false);
     }
   }, [user, test, answers, questions.length, submitting]);
 
-  // Keep ref in sync
   submitRef.current = submit;
 
-  /* ── Handle Reattempt ── */
-  const handleReattempt = useCallback(async () => {
-    if (!test) return;
-    setReattempting(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('start-test-attempt', { body: { test_id: test.id } });
-      if (error || data?.error) { toast.error(data?.error || error?.message || 'Could not start re-attempt'); return; }
-      await loadTest(true);
-      toast.success('New attempt started!');
-    } finally {
-      setReattempting(false);
-    }
-  }, [test, loadTest]);
-
-  /* ── Select Answer ── */
-  const selectAnswer = useCallback((questionId: string, optionId: string) => {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: prev[questionId] === optionId ? undefined as unknown as string : optionId,
-    }));
-  }, []);
-
-  /* ── Go To Question ── */
-  const goToQuestion = useCallback((idx: number) => {
-    setCurrentQ(idx);
-    setShowGrid(false);
-  }, []);
-
-  /* ══════════════════════════════════════════════════════
-     EFFECTS (all after callbacks)
-     ══════════════════════════════════════════════════════ */
-
-  /* ── Load test on mount ── */
+  /* ── Effects ── */
   useEffect(() => { loadTest(false); }, [loadTest]);
 
-  /* ── Timer ── */
   useEffect(() => {
-    if (result || secondsLeft <= 0 || loading) {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-      return;
-    }
-    timerRef.current = setInterval(() => {
-      setSecondsLeft(s => {
-        if (s <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => {
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
-    };
-  }, [result, loading]);
+    if (result || secondsLeft <= 0 || loading || !isExamMode) { if (timerRef.current) clearInterval(timerRef.current); return; }
+    timerRef.current = setInterval(() => setSecondsLeft(s => s <= 1 ? 0 : s - 1), 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [result, loading, isExamMode, secondsLeft]);
 
-  /* ── Auto-submit on time up ── */
   useEffect(() => {
-    if (!loading && !result && secondsLeft === 0 && test) {
-      toast.warning('Time is up! Auto-submitting...');
+    if (!loading && !result && secondsLeft === 0 && test && isExamMode) {
+      toast.warning('Time up!');
       submitRef.current?.(true);
     }
-  }, [secondsLeft, loading, result, test]);
+  }, [secondsLeft, loading, result, test, isExamMode]);
+
+  /* ── Handlers ── */
+  const selectAnswer = useCallback((qid: string, oid: string) => {
+    setAnswers(p => ({ ...p, [qid]: p[qid] === oid ? undefined as any : oid }));
+  }, []);
+
+  const handleExit = useCallback(() => {
+    exitFullscreen();
+    nav(-1);
+  }, [nav]);
 
   /* ══════════════════════════════════════════════════════
      RENDER
      ══════════════════════════════════════════════════════ */
-  if (loading) return <TestSkeleton />;
+  
+  const renderLoader = (message: string) => (
+     <div className="fixed inset-0 z-[100] bg-background/90 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+        <div className="relative">
+            <div className="w-16 h-16 rounded-full border-4 border-muted"></div>
+            <div className="absolute top-0 left-0 w-16 h-16 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+        </div>
+        <p className="text-base font-semibold text-foreground">{message}</p>
+     </div>
+  );
+
+  if (loading) return renderLoader('Preparing your test...');
   if (!test) return null;
 
-  /* ── Result Screen ── */
   if (result) {
     return (
-      <div className="flex-1 overflow-y-auto">
-        {reattempting && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3 p-6">
-              <Loader2 className="w-10 h-10 animate-spin text-primary" />
-              <p className="text-sm font-medium text-muted-foreground">Starting new attempt…</p>
+      <div className="flex-1 overflow-y-auto bg-muted/10 p-4 sm:p-8">
+        <div className="max-w-2xl mx-auto space-y-6">
+          <Card className={cn("p-8 text-center border-0 shadow-lg rounded-2xl overflow-hidden relative", result.passed ? "bg-white dark:bg-card" : "bg-white dark:bg-card")}>
+             <div className={cn("absolute top-0 left-0 right-0 h-3", result.passed ? "bg-green-500" : "bg-red-500")} />
+             
+            <div className={cn("w-24 h-24 rounded-full mx-auto mb-5 flex items-center justify-center shadow-inner", result.passed ? "bg-green-100 dark:bg-green-900/30" : "bg-red-100 dark:bg-red-900/30")}>
+              {result.passed ? <Trophy className="w-12 h-12 text-green-600" /> : <XCircle className="w-12 h-12 text-red-600" />}
             </div>
-          </div>
-        )}
-        <div className="px-4 md:px-6 py-6 md:py-8 max-w-3xl mx-auto w-full space-y-6">
-          <div className={cn(
-            "rounded-2xl border p-6 sm:p-8 text-center",
-            result.passed
-              ? "border-green-300/50 dark:border-green-700/40 bg-gradient-to-b from-green-50/80 to-card dark:from-green-950/20 dark:to-card"
-              : "border-red-300/50 dark:border-red-700/40 bg-gradient-to-b from-red-50/80 to-card dark:from-red-950/20 dark:to-card",
-          )}>
-            <div className={cn(
-              "w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4",
-              result.passed ? "bg-green-500/15" : "bg-red-500/15",
-            )}>
-              {result.passed ? <Trophy className="w-8 h-8 text-green-500" /> : <XCircle className="w-8 h-8 text-red-500" />}
-            </div>
-            <div className={cn(
-              "inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full mb-3",
-              result.passed ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-red-500/15 text-red-600 dark:text-red-400",
-            )}>
-              {result.passed ? <><ShieldCheck className="w-3.5 h-3.5" /> Passed</> : <><XCircle className="w-3.5 h-3.5" /> Failed</>}
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-1">
-              {result.score}<span className="text-lg sm:text-xl text-muted-foreground font-normal"> / {result.total}</span>
-            </h2>
-            <p className="text-sm text-muted-foreground mb-5">{result.pct}% · Pass mark: {test.pass_score}%</p>
-            <div className="flex items-center justify-center gap-6 sm:gap-8 mb-6">
+            <h2 className="text-4xl font-extrabold text-foreground mb-1">{result.score} <span className="text-xl text-muted-foreground font-normal">/ {result.total}</span></h2>
+            <p className="text-muted-foreground text-base mb-5">{result.pct}% Score · Pass Mark: {test.pass_score}%</p>
+            
+            <div className="flex justify-center gap-8 mb-6 py-5 border-y border-border/50 text-sm">
               <div className="text-center">
-                <div className="text-lg sm:text-xl font-bold text-green-600 dark:text-green-400">{result.correct}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">Correct</div>
+                <span className="block text-2xl font-bold text-green-600">{result.correct}</span>
+                <span className="text-muted-foreground uppercase font-medium">Correct</span>
               </div>
-              <div className="w-px h-8 bg-border/50" />
               <div className="text-center">
-                <div className="text-lg sm:text-xl font-bold text-red-600 dark:text-red-400">{result.wrong}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">Wrong</div>
+                <span className="block text-2xl font-bold text-red-600">{result.wrong}</span>
+                <span className="text-muted-foreground uppercase font-medium">Wrong</span>
               </div>
-              <div className="w-px h-8 bg-border/50" />
               <div className="text-center">
-                <div className="text-lg sm:text-xl font-bold text-muted-foreground">{questions.length - result.correct - result.wrong}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">Skipped</div>
+                <span className="block text-2xl font-bold text-muted-foreground">{questions.length - result.correct - result.wrong}</span>
+                <span className="text-muted-foreground uppercase font-medium">Skipped</span>
               </div>
             </div>
-            {!result.locked && (result.coins_delta !== 0 || result.xp_delta > 0) && (
-              <div className="flex items-center justify-center gap-4 mb-6 p-3 rounded-xl bg-muted/30 border border-border/30">
-                {result.coins_delta !== 0 && (
-                  <div className={cn("flex items-center gap-1.5 text-sm font-bold", result.coins_delta >= 0 ? "text-[hsl(var(--coin))]" : "text-destructive")}>
-                    <Coins className="w-4 h-4" />{result.coins_delta >= 0 ? '+' : ''}{result.coins_delta} coins
-                  </div>
-                )}
-                {result.xp_delta > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-[hsl(var(--xp))]">
-                    <Zap className="w-4 h-4" />+{result.xp_delta} XP
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="flex flex-col sm:flex-row gap-2.5 justify-center">
-              <Button variant="outline" onClick={() => nav(-1)} className="w-full sm:w-auto h-10 sm:h-11 rounded-xl text-sm gap-2">
-                <ArrowLeft className="w-4 h-4" />Go Back
-              </Button>
-              <Button onClick={handleReattempt} disabled={reattempting} className="w-full sm:w-auto h-10 sm:h-11 rounded-xl text-sm gap-2">
-                {reattempting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                Re-attempt
-              </Button>
+
+            <div className="flex gap-3 justify-center">
+              <Button variant="outline" size="lg" onClick={() => nav(-1)} className="gap-2 rounded-xl"><ArrowLeft className="w-5 h-5"/>Back</Button>
+              <Button size="lg" onClick={() => { setResult(null); loadTest(true); setIsExamMode(true); enterFullscreen(); }} className="gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl"><RotateCcw className="w-5 h-5"/>Reattempt</Button>
             </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 mb-4">
-              <BookOpen className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">Answer Review</h3>
-            </div>
-            <div className="space-y-2.5 pb-8">
-              {questions.map((q, i) => (
-                <ReviewCard key={q.id} question={q} index={i} selectedOptionId={answers[q.id]} />
-              ))}
-            </div>
+          </Card>
+
+          <div className="space-y-4">
+             <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2 px-1"><BookOpen className="w-4 h-4"/> Answer Review</h3>
+            {questions.map((q, i) => <ReviewCard key={q.id} question={q} index={i} selectedOptionId={answers[q.id]} />)}
           </div>
         </div>
       </div>
     );
   }
 
-  /* ── Active Test ── */
+  if (!isExamMode) {
+    return (
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-gradient-to-b from-background to-muted p-4">
+        <Card className="w-full max-w-md p-8 text-center space-y-5 shadow-xl border-border/50 rounded-2xl">
+          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mx-auto shadow-inner">
+            <BookOpen className="w-10 h-10 text-primary" />
+          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight">{test.title}</h1>
+          <p className="text-sm text-muted-foreground">Read instructions carefully.</p>
+          
+          <div className="bg-muted/50 rounded-xl p-5 text-left space-y-3 text-sm">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Duration</span>
+              <span className="font-bold text-foreground">{test.duration_minutes} Min</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Questions</span>
+              <span className="font-bold text-foreground">{questions.length}</span>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 text-amber-700 text-sm p-4 rounded-lg text-left flex gap-2">
+            <AlertTriangle className="w-5 h-5 shrink-0" />
+            <span>Fullscreen mode enabled. Do not refresh.</span>
+          </div>
+          
+          <Button onClick={() => { enterFullscreen(); setIsExamMode(true); }} className="w-full h-14 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-lg rounded-xl shadow-lg">
+            <Maximize2 className="w-5 h-5 mr-2"/> Start Test
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   const q = questions[currentQ];
   if (!q) return null;
 
-  const answered = Object.keys(answers).length;
-  const isLast = currentQ === questions.length - 1;
-  const isFirst = currentQ === 0;
-
   return (
-    <div className="flex-1 flex flex-col max-w-3xl mx-auto w-full min-h-0">
-      <header className="px-4 md:px-6 py-3 border-b border-border/30 bg-background/95 backdrop-blur-sm sticky top-14 z-20 shrink-0">
-        <div className="flex justify-between items-center gap-3">
-          <h1 className="font-semibold text-sm sm:text-base text-foreground truncate">{test.title}</h1>
-          <TimerDisplay seconds={secondsLeft} />
+    <div className="fixed inset-0 z-30 bg-muted/10 flex flex-col overflow-hidden">
+      
+      {submitting && renderLoader('Submitting...')}
+
+      <header className="h-16 bg-white dark:bg-card border-b border-border/50 flex items-center justify-between px-4 sm:px-6 shrink-0 z-20">
+        <div className="flex items-center gap-3">
+           <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full text-muted-foreground hover:text-destructive" onClick={() => setShowExitConfirm(true)}>
+             <X className="w-5 h-5" />
+           </Button>
+           <div className="border-l border-border pl-3 ml-1">
+             <span className="text-sm font-bold text-foreground block truncate max-w-[150px] sm:max-w-none">{test.title}</span>
+             <span className="text-[11px] text-muted-foreground">Assessment Mode</span>
+           </div>
         </div>
-        <div className="flex items-center gap-3 mt-2.5">
-          <Progress value={questions.length ? (answered / questions.length) * 100 : 0} className="h-1 flex-1" />
-          <span className="text-[11px] sm:text-xs text-muted-foreground shrink-0 tabular-nums font-medium">{answered}/{questions.length}</span>
+        <div className="flex items-center gap-4">
+            <TimerDisplay seconds={secondsLeft} />
+            <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
+                <div className="text-right">
+                    <p className="text-[11px] text-muted-foreground">Candidate</p>
+                    <p className="text-sm font-semibold truncate max-w-[100px]">{userProfile?.display_name}</p>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-muted overflow-hidden">
+                    {userProfile?.avatar_url ? <img src={userProfile.avatar_url} className="w-full h-full object-cover" /> : <User className="w-5 h-5 m-auto mt-2 text-muted-foreground"/>}
+                </div>
+            </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-5 sm:py-6">
-        <div className="text-center mb-4 sm:mb-5">
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 px-3 py-1.5 rounded-full">
-            <span className="font-semibold text-foreground">{currentQ + 1}</span>
-            <span>of</span>
-            <span className="font-semibold text-foreground">{questions.length}</span>
-          </span>
-        </div>
+      <div className="flex-1 flex overflow-hidden">
+        <main className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-white dark:bg-background">
+            <div className="flex-1 flex flex-col justify-center p-4 sm:p-6 lg:p-8">
+                <div className="max-w-3xl w-full mx-auto space-y-5">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                        <span className="bg-primary/10 text-primary px-2.5 py-1 rounded text-sm">Question No. {currentQ + 1}</span>
+                        <span className="flex items-center gap-1 text-sm"><Target className="w-4 h-4"/> Marks: {q.marks}</span>
+                    </div>
 
-        <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
-          <div className="p-4 sm:p-6 border-b border-border/20">
-            <div className="flex items-start gap-3">
-              <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md shrink-0 mt-0.5">Q{currentQ + 1}</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm sm:text-[15px] text-foreground leading-relaxed break-words">{q.text}</p>
-                {q.image_url && <img src={q.image_url} alt="" loading="lazy" className="mt-3 max-h-48 sm:max-h-64 rounded-lg w-auto" />}
-                <span className="text-[11px] text-muted-foreground mt-2 inline-block">{q.marks} mark{q.marks > 1 ? 's' : ''}</span>
-              </div>
+                    <div className="bg-card border border-border/50 rounded-2xl p-6 sm:p-8 shadow-sm">
+                        <p className="font-medium text-base sm:text-lg leading-relaxed text-foreground mb-6">{q.text}</p>
+                        {q.image_url && (
+                            <div className="mb-6 p-2 bg-muted/30 rounded-lg inline-block max-w-full">
+                                <img src={q.image_url} alt="Question" className="max-h-60 rounded-md max-w-full" />
+                            </div>
+                        )}
+                        
+                        <div className="space-y-3">
+                            {q.question_options.map((opt, i) => {
+                            const isSelected = answers[q.id] === opt.id;
+                            return (
+                                <button
+                                    key={opt.id}
+                                    onClick={() => selectAnswer(q.id, opt.id)}
+                                    className={cn(
+                                        "w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all group",
+                                        "focus-visible:ring-2 focus-visible:ring-primary",
+                                        isSelected 
+                                            ? "bg-primary/5 border-primary/40 shadow-sm" 
+                                            : "border-border/70 hover:bg-muted/30"
+                                    )}
+                                >
+                                    <span className={cn(
+                                        "w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0",
+                                        isSelected ? "bg-primary text-primary-foreground shadow-sm" : "bg-muted text-muted-foreground"
+                                    )}>
+                                        {String.fromCharCode(65 + i)}
+                                    </span>
+                                    <span className="text-sm sm:text-base flex-1 text-foreground/90">{opt.text}</span>
+                                    {isSelected && <CheckCircle2 className="w-6 h-6 text-primary ml-auto shrink-0" />}
+                                </button>
+                            );
+                            })}
+                        </div>
+                    </div>
+                </div>
             </div>
-          </div>
-          <div className="p-3 sm:p-4 space-y-1.5 sm:space-y-2">
-            {q.question_options.map((opt, oi) => {
-              const isSelected = answers[q.id] === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => selectAnswer(q.id, opt.id)}
-                  className={cn(
-                    "w-full flex items-center gap-2.5 sm:gap-3 p-3 sm:p-3.5 rounded-lg border text-left transition-all duration-150 active:scale-[0.995]",
-                    "focus-visible:ring-2 focus-visible:ring-primary/30 outline-none",
-                    isSelected
-                      ? "bg-primary/8 border-primary/30 shadow-sm shadow-primary/5 hover:bg-primary/12"
-                      : "border-border/30 hover:border-border/50 hover:bg-muted/30",
-                  )}
-                  style={{ touchAction: 'manipulation' }}
-                >
-                  <OptionBadge letter={String.fromCharCode(65 + oi)} selected={isSelected} />
-                  <span className="text-sm sm:text-[14px] text-foreground/90 leading-relaxed break-words flex-1">{opt.text}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+
+            <div className="hidden sm:flex border-t border-border/50 p-3 bg-muted/20 shrink-0">
+                 <div className="flex items-center gap-2 max-w-3xl w-full mx-auto">
+                    <Button variant="outline" size="default" className="gap-2 text-sm" disabled={currentQ === 0} onClick={() => setCurrentQ(c => c - 1)}>
+                        <ChevronLeft className="w-5 h-5"/> Previous
+                    </Button>
+                    <div className="flex-1" />
+                    {currentQ === questions.length - 1 ? (
+                        <Button size="default" onClick={() => submit(false)} disabled={submitting} className="gap-2 bg-green-600 hover:bg-green-700 text-white text-sm">
+                            <CheckCircle2 className="w-5 h-5"/> Submit Test
+                        </Button>
+                    ) : (
+                        <Button size="default" className="gap-2 text-sm" onClick={() => setCurrentQ(c => c + 1)}>
+                            Save & Next <ChevronRight className="w-5 h-5"/>
+                        </Button>
+                    )}
+                 </div>
+            </div>
+        </main>
+
+        <aside className="hidden lg:block w-72 shrink-0 border-l border-border/50 h-full bg-muted/5">
+            <QuestionPalette
+                questions={questions} answers={answers} currentQ={currentQ} onSelect={setCurrentQ}
+                profile={userProfile} userId={user?.id||''} onSubmit={() => submit(false)}
+            />
+        </aside>
       </div>
 
-      <div className="sticky bottom-0 bg-background/95 backdrop-blur-sm border-t border-border/30 px-4 md:px-6 py-2.5 sm:py-3 z-20 shrink-0">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowGrid(true)} className="shrink-0 h-9 w-9 p-0 sm:h-10 sm:w-auto sm:px-3 rounded-lg" title="Question navigator">
-            <LayoutGrid className="w-4 h-4" />
-            <span className="hidden sm:inline text-xs ml-1.5 font-medium">{answered}/{questions.length}</span>
+      <nav className="sm:hidden shrink-0 border-t border-border/50 bg-white dark:bg-background p-2 flex items-center gap-2 justify-between sticky bottom-0 z-20">
+          <Button variant="outline" size="default" className="h-11 px-3 text-sm flex-1" disabled={currentQ === 0} onClick={() => setCurrentQ(c => c - 1)}>
+             <ChevronLeft className="w-4 h-4 mr-1"/> Prev
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setCurrentQ(c => Math.max(0, c - 1))} disabled={isFirst} className="shrink-0 h-9 sm:h-10 rounded-lg gap-1">
-            <ChevronLeft className="w-4 h-4" />
-            <span className="hidden sm:inline text-xs">Prev</span>
+
+          <Button variant="outline" className="h-11 px-3 text-sm font-bold flex-1 bg-muted/40" onClick={() => setShowMobilePalette(true)}>
+             <Menu className="w-4 h-4 mr-1.5"/> Menu
+             <span className="ml-2 px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-[11px]">{Object.keys(answers).length}/{questions.length}</span>
           </Button>
-          <div className="flex-1" />
-          {isLast ? (
-            <Button onClick={() => submit(false)} disabled={submitting || answered === 0} size="sm" className="h-9 sm:h-10 px-4 sm:px-5 rounded-lg gap-1.5 text-xs sm:text-sm font-medium">
-              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
-              Submit
-            </Button>
+
+          {currentQ === questions.length - 1 ? (
+              <Button size="default" className="h-11 px-3 text-sm flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold" onClick={() => submit(false)} disabled={submitting}>
+                  <CheckCircle2 className="w-4 h-4 mr-1"/> Submit
+              </Button>
           ) : (
-            <Button size="sm" onClick={() => setCurrentQ(c => c + 1)} className="h-9 sm:h-10 px-4 sm:px-5 rounded-lg gap-1 text-xs sm:text-sm font-medium">
-              Next<ChevronRight className="w-4 h-4" />
-            </Button>
+              <Button size="default" className="h-11 px-3 text-sm flex-1 font-semibold" onClick={() => setCurrentQ(c => c + 1)}>
+                  Next <ChevronRight className="w-4 h-4 ml-1"/>
+              </Button>
           )}
-        </div>
-      </div>
+      </nav>
 
-      {showGrid && (
-        <QuestionGrid
-          questions={questions} answers={answers} currentQ={currentQ}
-          onSelect={goToQuestion} onClose={() => setShowGrid(false)}
-          onSubmit={() => { setShowGrid(false); submit(false); }}
-          canSubmit={answered > 0} submitting={submitting}
-        />
+      {showMobilePalette && (
+        <div className="lg:hidden fixed inset-0 z-50" style={{animation: 'fadeIn .2s ease-out'}}>
+           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowMobilePalette(false)} />
+           <div className="absolute right-0 top-0 bottom-0 w-full max-w-xs shadow-2xl" style={{animation: 'slideIn .25s ease-out'}}>
+             <QuestionPalette
+               questions={questions} answers={answers} currentQ={currentQ} onSelect={setCurrentQ}
+               isMobile={true}
+               onClose={() => setShowMobilePalette(false)} profile={userProfile} userId={user?.id||''}
+               onSubmit={() => { setShowMobilePalette(false); submit(false); }}
+             />
+           </div>
+        </div>
       )}
 
-      <ConfirmDialog
-        open={showConfirm} onConfirm={() => submit(true)} onCancel={() => setShowConfirm(false)}
-        title="Submit Test?"
-        description={`${questions.length - answered} question${questions.length - answered > 1 ? 's are' : ' is'} unanswered. Are you sure you want to submit?`}
-        confirmText="Submit Anyway" variant="warning"
-      />
+      <ConfirmDialog open={showConfirm} onConfirm={() => submit(true)} onCancel={() => setShowConfirm(false)} title="Submit Test?" description="You have unanswered questions." confirmText="Submit Anyway" variant="warning" />
+      <ConfirmDialog open={showExitConfirm} onConfirm={handleExit} onCancel={() => setShowExitConfirm(false)} title="Exit Test?" description="Your progress will be lost." confirmText="Exit Anyway" variant="warning" />
+      
+      <style>{`
+        @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+      `}</style>
     </div>
   );
 };

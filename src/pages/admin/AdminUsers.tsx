@@ -14,7 +14,7 @@ import {
   Trash2, AlertTriangle, CheckCircle2, Lock, Coins, Users as UsersIcon,
   GraduationCap, Flame, Trophy, Calendar, Mail, Phone as PhoneIcon,
   BookOpen, ClipboardCheck, Tag, Crown, UserCheck, UserX, Sparkles,
-  ArrowRight, X, Eye
+  ArrowRight, X, Eye, MapPin, Globe, User
 } from 'lucide-react';
 
 const AdminUsers = () => {
@@ -43,7 +43,8 @@ const AdminUsers = () => {
     setInitialLoading(true);
     try {
       const [profilesRes, rolesRes, usersRes, coursesRes] = await Promise.all([
-        supabase.from('profiles').select('user_id, display_name, avatar_url, phone, bio, xp, coins, level, current_streak, longest_streak, created_at').order('created_at', { ascending: false }).limit(500),
+        // UPDATED: Removed 'bio', added new profile fields to match SQL schema
+        supabase.from('profiles').select('user_id, display_name, avatar_url, phone, xp, coins, level, current_streak, longest_streak, created_at, gender, date_of_birth, language, address, city, state, country, pincode').order('created_at', { ascending: false }).limit(500),
         supabase.from('user_roles').select('user_id, role'),
         supabase.functions.invoke('admin-users'),
         supabase.from('courses').select('id, title').order('title'),
@@ -63,12 +64,15 @@ const AdminUsers = () => {
       authUsers.forEach((u: any) => { emails[u.id] = u.email; });
 
       const profileIds = new Set(profiles.map((p: any) => p.user_id));
+      
+      // UPDATED: Merge logic includes new fields with defaults
       const merged = [
         ...profiles.map((p: any) => ({ ...p, isAdmin: adminSet.has(p.user_id), email: emails[p.user_id] })),
         ...authUsers.filter((u: any) => !profileIds.has(u.id)).map((u: any) => ({
-          user_id: u.id, display_name: null, avatar_url: null, phone: null, bio: null,
+          user_id: u.id, display_name: null, avatar_url: null, phone: null, 
           xp: 0, coins: 0, level: 1, current_streak: 0, longest_streak: 0,
           created_at: u.created_at, isAdmin: adminSet.has(u.id), email: u.email,
+          gender: null, date_of_birth: null, language: null, address: null, city: null, state: null, country: null, pincode: null
         })),
       ];
 
@@ -238,11 +242,12 @@ const AdminUsers = () => {
     return rows.filter((u) =>
       (u.display_name || '').toLowerCase().includes(q) ||
       (u.email || '').toLowerCase().includes(q) ||
-      (u.phone || '').toLowerCase().includes(q)
+      (u.phone || '').toLowerCase().includes(q) ||
+      (u.city || '').toLowerCase().includes(q) || // Added search by city
+      (u.state || '').toLowerCase().includes(q)   // Added search by state
     );
   }, [rows, query]);
 
-  // Quick stats
   const quickStats = useMemo(() => {
     const admins = rows.filter(u => u.isAdmin).length;
     const totalXp = rows.reduce((s, u) => s + (u.xp || 0), 0);
@@ -264,7 +269,7 @@ const AdminUsers = () => {
   return (
     <div className="flex flex-col h-full overflow-hidden">
 
-      {/* ─── Header ─── */}
+      {/* Header */}
       <div className="shrink-0 border-b border-border bg-background z-10">
         <div className="px-4 sm:px-6 py-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -282,14 +287,11 @@ const AdminUsers = () => {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, email, or phone…"
+                placeholder="Search name, email, city..."
                 className="pl-9 h-10 bg-muted/40 border-border/50 focus:bg-background transition-colors"
               />
               {query && (
-                <button
-                  onClick={() => setQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
+                <button onClick={() => setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}
@@ -309,33 +311,11 @@ const AdminUsers = () => {
               <span className="text-xs text-muted-foreground">Admins</span>
               <span className="text-xs font-bold">{quickStats.admins}</span>
             </div>
-            <div className="w-px h-3.5 bg-border" />
-            <div className="flex items-center gap-1.5">
-              <Trophy className="w-3.5 h-3.5 text-blue-500" />
-              <span className="text-xs text-muted-foreground">Avg Level</span>
-              <span className="text-xs font-bold">{quickStats.avgLevel}</span>
-            </div>
-            <div className="w-px h-3.5 bg-border" />
-            <div className="flex items-center gap-1.5">
-              <Flame className="w-3.5 h-3.5 text-orange-500" />
-              <span className="text-xs text-muted-foreground">Total XP</span>
-              <span className="text-xs font-bold">{quickStats.totalXp.toLocaleString()}</span>
-            </div>
-            {query && (
-              <>
-                <div className="w-px h-3.5 bg-border" />
-                <div className="flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-xs text-muted-foreground">Showing</span>
-                  <span className="text-xs font-bold text-primary">{filtered.length}</span>
-                </div>
-              </>
-            )}
           </div>
         </div>
       </div>
 
-      {/* ─── Scrollable Content ─── */}
+      {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-muted/20">
         <div className="space-y-2.5 max-w-5xl mx-auto">
 
@@ -361,17 +341,15 @@ const AdminUsers = () => {
                   isExp ? 'shadow-md ring-1 ring-primary/10' : 'shadow-sm hover:shadow-md'
                 }`}
               >
-                {/* ─── User Row ─── */}
+                {/* User Row */}
                 <div
                   className="p-3 sm:p-4 flex items-center gap-3 cursor-pointer select-none"
                   onClick={() => toggleExpand(u.user_id)}
                 >
-                  {/* Expand Toggle */}
                   <div className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center transition-colors ${isExp ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'}`}>
                     {isExp ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                   </div>
 
-                  {/* Avatar */}
                   <div className={`relative shrink-0 w-10 h-10 rounded-full overflow-hidden ${u.isAdmin ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-card' : ''}`}>
                     {u.avatar_url ? (
                       <img src={u.avatar_url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -387,7 +365,6 @@ const AdminUsers = () => {
                     )}
                   </div>
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-sm truncate">{u.display_name || 'Unnamed User'}</span>
@@ -410,7 +387,6 @@ const AdminUsers = () => {
                     </div>
                   </div>
 
-                  {/* Stats Pills */}
                   <div className="hidden sm:flex items-center gap-1.5 shrink-0">
                     <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-[10px] font-semibold">
                       <Trophy className="w-3 h-3" /> Lvl {u.level}
@@ -418,12 +394,8 @@ const AdminUsers = () => {
                     <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-50 text-orange-700 text-[10px] font-semibold">
                       <Flame className="w-3 h-3" /> {u.xp.toLocaleString()} XP
                     </div>
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-yellow-50 text-yellow-700 text-[10px] font-semibold">
-                      <Coins className="w-3 h-3" /> {u.coins.toLocaleString()}
-                    </div>
                   </div>
 
-                  {/* Admin Action */}
                   <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Button
                       size="sm"
@@ -444,7 +416,7 @@ const AdminUsers = () => {
                   </div>
                 </div>
 
-                {/* ─── Expanded Details ─── */}
+                {/* Expanded Details */}
                 {isExp && (
                   isLoading ? (
                     <div className="border-t border-border px-6 py-8 flex items-center justify-center bg-muted/10">
@@ -454,7 +426,7 @@ const AdminUsers = () => {
                   ) : d ? (
                     <div className="border-t border-border bg-gradient-to-b from-muted/30 to-muted/10">
 
-                      {/* Summary Stats */}
+                      {/* Summary Stats Grid */}
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-0 border-b border-border">
                         {[
                           { icon: <Calendar className="w-3.5 h-3.5" />, label: 'Joined', value: new Date(u.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }), color: 'text-slate-600' },
@@ -475,7 +447,49 @@ const AdminUsers = () => {
 
                       <div className="p-4 sm:p-5 space-y-5">
 
-                        {/* ─── Streak & Gamification ─── */}
+                        {/* NEW: Personal & Address Details */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Personal Info */}
+                          <div className="p-3 bg-background rounded-lg border space-y-3">
+                            <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                              <User className="w-3.5 h-3.5" /> Personal Details
+                            </h4>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                              <div>
+                                <span className="text-muted-foreground block">Gender</span>
+                                <span className="font-medium">{u.gender || '—'}</span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground block">DOB</span>
+                                <span className="font-medium">{u.date_of_birth ? new Date(u.date_of_birth).toLocaleDateString() : '—'}</span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground block">Language</span>
+                                <span className="font-medium">{u.language || '—'}</span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground block">Phone</span>
+                                <span className="font-medium">{u.phone || '—'}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Address Info */}
+                          <div className="p-3 bg-background rounded-lg border space-y-3">
+                            <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5" /> Address
+                            </h4>
+                            <div className="text-xs space-y-1">
+                              {u.address ? <p className="text-foreground">{u.address}</p> : <p className="text-muted-foreground italic">No address provided</p>}
+                              <p className="text-muted-foreground">
+                                {[u.city, u.state, u.country].filter(Boolean).join(', ') || '—'}
+                                {u.pincode && <span className="ml-2 font-medium">({u.pincode})</span>}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Streak & Gamification */}
                         <div className="flex flex-wrap items-center gap-3">
                           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-100">
                             <Flame className="w-4 h-4 text-orange-500" />
@@ -493,7 +507,7 @@ const AdminUsers = () => {
                           </div>
                         </div>
 
-                        {/* ─── Enrolled Courses ─── */}
+                        {/* Enrolled Courses */}
                         <div>
                           <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2.5 tracking-wider flex items-center gap-1.5">
                             <GraduationCap className="w-3.5 h-3.5" /> Enrolled Courses
@@ -515,52 +529,26 @@ const AdminUsers = () => {
                                 return (
                                   <div key={e.id} className="group relative p-3 bg-background rounded-lg border hover:border-primary/20 transition-colors">
                                     <div className="flex items-center gap-3">
-                                      {/* Course Icon */}
-                                      <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${
-                                        e.pct === 100 ? 'bg-green-50' : 'bg-primary/5'
-                                      }`}>
-                                        {e.pct === 100 ? (
-                                          <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                        ) : (
-                                          <BookOpen className="w-4 h-4 text-primary/60" />
-                                        )}
+                                      <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${e.pct === 100 ? 'bg-green-50' : 'bg-primary/5'}`}>
+                                        {e.pct === 100 ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : <BookOpen className="w-4 h-4 text-primary/60" />}
                                       </div>
-
-                                      {/* Course Info */}
                                       <div className="flex-1 min-w-0">
                                         <div className="font-medium text-xs truncate">{e.courses?.title || 'Unknown Course'}</div>
                                         <div className="flex items-center gap-1.5 mt-0.5">
-                                          {isGranted && (
-                                            <Badge className="text-[9px] px-1.5 py-0 h-3.5 bg-primary/10 text-primary border-0 font-semibold">Granted</Badge>
-                                          )}
-                                          {isPromo && (
-                                            <Badge className="text-[9px] px-1.5 py-0 h-3.5 bg-orange-50 text-orange-600 border-0 font-semibold">{e.promocode}</Badge>
-                                          )}
-                                          {isPaid && (
-                                            <span className="text-[10px] font-semibold text-green-600">₹{(e.amount_paid_inr || 0).toLocaleString()}</span>
-                                          )}
-                                          {isFree && (
-                                            <Badge className="text-[9px] px-1.5 py-0 h-3.5 bg-blue-50 text-blue-600 border-0 font-semibold">Free</Badge>
-                                          )}
+                                          {isGranted && <Badge className="text-[9px] px-1.5 py-0 h-3.5 bg-primary/10 text-primary border-0 font-semibold">Granted</Badge>}
+                                          {isPromo && <Badge className="text-[9px] px-1.5 py-0 h-3.5 bg-orange-50 text-orange-600 border-0 font-semibold">{e.promocode}</Badge>}
+                                          {isPaid && <span className="text-[10px] font-semibold text-green-600">₹{(e.amount_paid_inr || 0).toLocaleString()}</span>}
+                                          {isFree && <Badge className="text-[9px] px-1.5 py-0 h-3.5 bg-blue-50 text-blue-600 border-0 font-semibold">Free</Badge>}
                                           <span className="text-[10px] text-muted-foreground">
                                             {new Date(e.enrolled_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                                           </span>
                                         </div>
                                       </div>
-
-                                      {/* Progress */}
                                       <div className="shrink-0 flex items-center gap-2">
                                         <div className="text-right">
-                                          <span className={`text-xs font-bold ${e.pct === 100 ? 'text-green-600' : 'text-primary'}`}>
-                                            {e.pct}%
-                                          </span>
-                                          {e.totalParts > 0 && (
-                                            <span className="text-[9px] text-muted-foreground block leading-none">
-                                              {e.doneParts}/{e.totalParts} parts
-                                            </span>
-                                          )}
+                                          <span className={`text-xs font-bold ${e.pct === 100 ? 'text-green-600' : 'text-primary'}`}>{e.pct}%</span>
+                                          {e.totalParts > 0 && <span className="text-[9px] text-muted-foreground block leading-none">{e.doneParts}/{e.totalParts} parts</span>}
                                         </div>
-
                                         <Button
                                           variant="ghost"
                                           size="sm"
@@ -572,15 +560,9 @@ const AdminUsers = () => {
                                         </Button>
                                       </div>
                                     </div>
-
-                                    {/* Progress Bar */}
                                     <div className="w-full h-1.5 bg-muted rounded-full mt-2.5 overflow-hidden">
                                       <div
-                                        className={`h-full rounded-full transition-all duration-500 ${
-                                          e.pct === 100
-                                            ? 'bg-gradient-to-r from-green-400 to-emerald-500'
-                                            : 'bg-gradient-to-r from-primary/80 to-primary'
-                                        }`}
+                                        className={`h-full rounded-full transition-all duration-500 ${e.pct === 100 ? 'bg-gradient-to-r from-green-400 to-emerald-500' : 'bg-gradient-to-r from-primary/80 to-primary'}`}
                                         style={{ width: `${e.pct}%` }}
                                       />
                                     </div>
@@ -629,12 +611,11 @@ const AdminUsers = () => {
                           </div>
                         </div>
 
-                        {/* ─── Recent Tests ─── */}
+                        {/* Recent Tests */}
                         <div>
                           <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2.5 tracking-wider flex items-center gap-1.5">
                             <ClipboardCheck className="w-3.5 h-3.5" /> Recent Tests
                           </h4>
-
                           {d.attempts.length === 0 ? (
                             <div className="text-center py-6 border border-dashed rounded-lg bg-background">
                               <ClipboardCheck className="w-6 h-6 mx-auto text-muted-foreground/30 mb-2" />
@@ -645,13 +626,9 @@ const AdminUsers = () => {
                               {d.attempts.map((a: any) => {
                                 const pct = a.total ? Math.round((a.score / a.total) * 100) : 0;
                                 return (
-                                  <div key={a.id} className={`flex items-center justify-between p-2.5 rounded-lg border transition-colors ${
-                                    a.passed ? 'bg-green-50/50 border-green-100 hover:border-green-200' : 'bg-red-50/30 border-red-100 hover:border-red-200'
-                                  }`}>
+                                  <div key={a.id} className={`flex items-center justify-between p-2.5 rounded-lg border transition-colors ${a.passed ? 'bg-green-50/50 border-green-100 hover:border-green-200' : 'bg-red-50/30 border-red-100 hover:border-red-200'}`}>
                                     <div className="flex items-center gap-2 min-w-0">
-                                      <div className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold ${
-                                        a.passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                                      }`}>
+                                      <div className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold ${a.passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                         {a.passed ? '✓' : '✗'}
                                       </div>
                                       <div className="min-w-0">
@@ -663,12 +640,8 @@ const AdminUsers = () => {
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0 ml-2">
                                       <div className="text-right">
-                                        <span className={`text-xs font-bold ${a.passed ? 'text-green-600' : 'text-red-600'}`}>
-                                          {a.score}/{a.total}
-                                        </span>
-                                        <span className={`text-[10px] ml-1 font-semibold ${pct >= 80 ? 'text-green-500' : pct >= 50 ? 'text-amber-500' : 'text-red-500'}`}>
-                                          ({pct}%)
-                                        </span>
+                                        <span className={`text-xs font-bold ${a.passed ? 'text-green-600' : 'text-red-600'}`}>{a.score}/{a.total}</span>
+                                        <span className={`text-[10px] ml-1 font-semibold ${pct >= 80 ? 'text-green-500' : pct >= 50 ? 'text-amber-500' : 'text-red-500'}`}>({pct}%)</span>
                                       </div>
                                     </div>
                                   </div>
@@ -677,8 +650,8 @@ const AdminUsers = () => {
                             </div>
                           )}
                         </div>
-
-                        {/* ─── Promo Redemptions ─── */}
+                        
+                        {/* Promo Redemptions */}
                         {d.redemptions.length > 0 && (
                           <div>
                             <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2.5 tracking-wider flex items-center gap-1.5">
@@ -693,9 +666,7 @@ const AdminUsers = () => {
                                     </div>
                                     <div className="min-w-0">
                                       <span className="text-xs font-medium font-mono">{r.promocodes?.code || '—'}</span>
-                                      {r.courses?.title && (
-                                        <span className="text-[10px] text-muted-foreground ml-1.5">→ {r.courses.title}</span>
-                                      )}
+                                      {r.courses?.title && <span className="text-[10px] text-muted-foreground ml-1.5">→ {r.courses.title}</span>}
                                     </div>
                                   </div>
                                   <span className="text-[10px] text-muted-foreground shrink-0 ml-2">
@@ -713,21 +684,16 @@ const AdminUsers = () => {
               </Card>
             );
           })}
-
           <div className="h-8" />
         </div>
       </div>
 
-      {/* ─── Admin Assign/Revoke Dialog ─── */}
+      {/* Admin Assign/Revoke Dialog */}
       <Dialog open={adminDialog.open} onOpenChange={(v) => setAdminDialog({ ...adminDialog, open: v })}>
         <DialogContent className="bg-card sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2.5">
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                adminDialog.currentIsAdmin
-                  ? 'bg-red-50 text-red-600'
-                  : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'
-              }`}>
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${adminDialog.currentIsAdmin ? 'bg-red-50 text-red-600' : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'}`}>
                 {adminDialog.currentIsAdmin ? <UserX className="w-5 h-5" /> : <UserCheck className="w-5 h-5" />}
               </div>
               <div>
@@ -741,7 +707,6 @@ const AdminUsers = () => {
               This action requires the secure admin password to proceed. This is a sensitive operation.
             </DialogDescription>
           </DialogHeader>
-
           <div className="py-4">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Admin Password</Label>
             <div className="relative mt-1.5">
@@ -757,24 +722,13 @@ const AdminUsers = () => {
               />
             </div>
           </div>
-
           <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setAdminDialog({ open: false, userId: null, currentIsAdmin: false })}
-              className="flex-1 sm:flex-none"
-            >
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setAdminDialog({ open: false, userId: null, currentIsAdmin: false })} className="flex-1 sm:flex-none">Cancel</Button>
             <Button
               variant={adminDialog.currentIsAdmin ? 'destructive' : 'default'}
               onClick={handleAdminAction}
               disabled={adminActionLoading || !adminPassInput}
-              className={`flex-1 sm:flex-none ${
-                !adminDialog.currentIsAdmin
-                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white'
-                  : ''
-              }`}
+              className={`flex-1 sm:flex-none ${!adminDialog.currentIsAdmin ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white' : ''}`}
             >
               {adminActionLoading ? (
                 <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Processing…</>

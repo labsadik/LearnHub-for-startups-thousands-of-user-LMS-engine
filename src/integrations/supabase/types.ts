@@ -45,7 +45,7 @@ export type Database = {
       coin_ledger: {
         Row: { coins: number; course_id: string | null; created_at: string; id: string; ref_id: string | null; source: string; user_id: string; xp: number }
         Insert: { coins?: number; course_id?: string | null; created_at?: string; id?: string; ref_id?: string | null; source: string; user_id: string; xp?: number }
-        Update: { coins?: number; course_id?: string | null; created_at?: string; id?: string; ref_id?: string | null; source?: string; user_id?: string; xp?: number }
+        Update: { coins?: number; course_id?: string | null; created_at?: string; id?: string; ref_id?: string | null; source?: string; user_id: string; xp?: number }
         Relationships: []
       }
       comments: {
@@ -115,9 +115,81 @@ export type Database = {
         Relationships: [{ foreignKeyName: "parts_chapter_id_fkey"; columns: ["chapter_id"]; isOneToOne: false; referencedRelation: "chapters"; referencedColumns: ["id"] }]
       }
       profiles: {
-        Row: { avatar_url: string | null; bio: string | null; coins: number; created_at: string; current_streak: number; display_name: string | null; id: string; last_activity_date: string | null; level: number; longest_streak: number; phone: string | null; referral_code: string; referred_by: string | null; updated_at: string; user_id: string; xp: number }
-        Insert: { avatar_url?: string | null; bio?: string | null; coins?: number; created_at?: string; current_streak?: number; display_name?: string | null; id?: string; last_activity_date?: string | null; level?: number; longest_streak?: number; phone?: string | null; referral_code?: string; referred_by?: string | null; updated_at?: string; user_id: string; xp?: number }
-        Update: { avatar_url?: string | null; bio?: string | null; coins?: number; created_at?: string; current_streak?: number; display_name?: string | null; id?: string; last_activity_date?: string | null; level?: number; longest_streak?: number; phone?: string | null; referral_code?: string; referred_by?: string | null; updated_at?: string; user_id?: string; xp?: number }
+        Row: { 
+          avatar_url: string | null; 
+          coins: number; 
+          created_at: string; 
+          current_streak: number; 
+          display_name: string | null; 
+          id: string; 
+          last_activity_date: string | null; 
+          level: number; 
+          longest_streak: number; 
+          phone: string | null; 
+          referral_code: string; 
+          referred_by: string | null; 
+          updated_at: string; 
+          user_id: string; 
+          xp: number;
+          gender: string | null;
+          date_of_birth: string | null;
+          language: string | null;
+          address: string | null;
+          city: string | null;
+          state: string | null;
+          country: string | null;
+          pincode: string | null;
+        }
+        Insert: { 
+          avatar_url?: string | null; 
+          coins?: number; 
+          created_at?: string; 
+          current_streak?: number; 
+          display_name?: string | null; 
+          id?: string; 
+          last_activity_date?: string | null; 
+          level?: number; 
+          longest_streak?: number; 
+          phone?: string | null; 
+          referral_code?: string; 
+          referred_by?: string | null; 
+          updated_at?: string; 
+          user_id: string; 
+          xp?: number;
+          gender?: string | null;
+          date_of_birth?: string | null;
+          language?: string | null;
+          address?: string | null;
+          city?: string | null;
+          state?: string | null;
+          country?: string | null;
+          pincode?: string | null;
+        }
+        Update: { 
+          avatar_url?: string | null; 
+          coins?: number; 
+          created_at?: string; 
+          current_streak?: number; 
+          display_name?: string | null; 
+          id?: string; 
+          last_activity_date?: string | null; 
+          level?: number; 
+          longest_streak?: number; 
+          phone?: string | null; 
+          referral_code?: string; 
+          referred_by?: string | null; 
+          updated_at?: string; 
+          user_id?: string; 
+          xp?: number;
+          gender?: string | null;
+          date_of_birth?: string | null;
+          language?: string | null;
+          address?: string | null;
+          city?: string | null;
+          state?: string | null;
+          country?: string | null;
+          pincode?: string | null;
+        }
         Relationships: []
       }
       progress: {

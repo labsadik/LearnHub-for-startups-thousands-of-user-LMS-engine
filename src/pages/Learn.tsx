@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import VideoPlayer from "@/components/VideoPlayer";
 import GamifyChip from "@/components/GamifyChip";
@@ -455,6 +455,8 @@ export default function Learn() {
   const { slug } = useParams<{ slug: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  // Added useSearchParams for redirection
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [course, setCourse] = useState<Course | null>(null);
   const [courseErr, setCourseErr] = useState<boolean>(false);
@@ -583,9 +585,42 @@ export default function Learn() {
     return () => { alive = false; };
   }, [course?.id, user?.id]);
 
-  /* ── Restore view on reload ── */
+  /* ── Restore view / Handle Redirect ── */
   useEffect(() => {
     if (!ready || tree.length === 0) return;
+
+    // 1. Handle Redirect from Study Page (URL Query Param)
+    const lectureId = searchParams.get('lectureId');
+    if (lectureId) {
+      // Find the lecture in the tree
+      outerLoop:
+      for (let sIdx = 0; sIdx < tree.length; sIdx++) {
+        const subj = tree[sIdx];
+        for (let cIdx = 0; cIdx < subj.chapters.length; cIdx++) {
+          const chap = subj.chapters[cIdx];
+          const part = chap.parts.find(p => p.id === lectureId);
+          if (part) {
+            isRestoringRef.current = true;
+            
+            setActiveSubjectIdx(sIdx);
+            setActiveChapterIdx(cIdx);
+            const ext: ExtendedPart = { ...part, chapterName: chap.name, subjectName: subj.name };
+            setActivePart(ext);
+            setView("player");
+            
+            // Clean URL
+            searchParams.delete('lectureId');
+            setSearchParams(searchParams, { replace: true });
+            
+            setTimeout(() => { isRestoringRef.current = false; }, 50);
+            break outerLoop;
+          }
+        }
+      }
+      return; // Skip session restore if redirect happened
+    }
+
+    // 2. Restore from Session Storage
     try {
       const raw = sessionStorage.getItem(STORAGE_KEY);
       if (!raw) return;
@@ -607,7 +642,7 @@ export default function Learn() {
       setView(s.view);
       setTimeout(() => { isRestoringRef.current = false; }, 50);
     } catch { isRestoringRef.current = false; }
-  }, [ready, tree]);
+  }, [ready, tree, searchParams, setSearchParams]);
 
   /* ── Save view ── */
   useEffect(() => {

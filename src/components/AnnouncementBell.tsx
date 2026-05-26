@@ -12,7 +12,7 @@ const AnnouncementBell = () => {
   const [items, setItems] = useState<any[]>([]);
   const [reads, setReads] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true); // Added loading state
+  const [loading, setLoading] = useState(true);
 
   const [enrolledIds, setEnrolledIds] = useState<Set<string>>(new Set());
 
@@ -73,8 +73,12 @@ const AnnouncementBell = () => {
 
   useEffect(() => {
     if (!user || enrolledIds.size === 0) return;
+
+    // FIX: Use a unique channel name to avoid conflicts with cached channels on re-render
+    const channelId = `announcements-bell-${user.id}-${crypto.randomUUID()}`;
+
     const ch = supabase
-      .channel('announcements-bell-' + user.id)
+      .channel(channelId)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'announcements' }, async (payload) => {
         const newRow: any = payload.new;
         if (!enrolledIds.has(newRow.course_id)) return;
@@ -87,7 +91,10 @@ const AnnouncementBell = () => {
         setItems(prev => prev.filter(p => p.id !== (payload.old as any).id));
       })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+
+    return () => { 
+      supabase.removeChannel(ch); 
+    };
   }, [user, enrolledIds]);
 
   const unread = items.filter(i => !reads.has(i.id)).length;
@@ -238,7 +245,7 @@ const AnnouncementBell = () => {
         </DialogContent>
       </Dialog>
       
-      {/* Custom Scrollbar Styles (Optional - usually in global css, but inline style works for component isolation) */}
+      {/* Custom Scrollbar Styles */}
       <style>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;

@@ -1,24 +1,37 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { BookOpen, LayoutDashboard, Trophy, LogOut } from 'lucide-react';
+import { BookOpen, LayoutDashboard, Trophy, School, Loader2, GraduationCap, Compass } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import GlobalLeaderboardDialog from './GlobalLeaderboardDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+
+interface CourseBasic {
+  id: string;
+  title: string;
+  slug: string;
+  thumbnail_url?: string | null;
+}
 
 export default function TabMobileNavbar() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  
+  // State for Dialogs
   const [lbOpen, setLbOpen] = useState(false);
-  const [logoutConfirm, setLogoutConfirm] = useState(false);
+  const [batchesOpen, setBatchesOpen] = useState(false);
+  const [batches, setBatches] = useState<CourseBasic[]>([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+
+  // Avatar State
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState(false);
   const [initials, setInitials] = useState('U');
 
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isLongPress = useRef(false);
-
+  // Fetch Avatar
   useEffect(() => {
     if (!user) {
       setAvatarUrl(null);
@@ -86,52 +99,29 @@ export default function TabMobileNavbar() {
     return () => { supabase.removeChannel(ch); };
   }, [user]);
 
-  const handlePointerDown = useCallback(() => {
-    isLongPress.current = false;
-    longPressTimer.current = setTimeout(() => {
-      isLongPress.current = true;
-      setLogoutConfirm(true);
-    }, 2000);
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
+  // Fetch Batches for Popup
+  useEffect(() => {
+    if (batchesOpen && user) {
+      setLoadingBatches(true);
+      supabase
+        .from('enrollments')
+        .select('id, courses(id, title, slug, thumbnail_url)')
+        .eq('user_id', user.id)
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setBatches(data.map((e: any) => e.courses).filter(Boolean));
+          }
+          setLoadingBatches(false);
+        });
     }
-  }, []);
-
-  const handlePointerLeave = useCallback(() => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  }, []);
-
-  const handleAvatarClick = useCallback(() => {
-    if (isLongPress.current) {
-      isLongPress.current = false;
-      return;
-    }
-    navigate('/profile');
-  }, [navigate]);
-
-  const handleLogout = useCallback(async () => {
-    setLogoutConfirm(false);
-    try {
-      await signOut();
-      navigate('/');
-    } catch (e) {
-      console.error(e);
-    }
-  }, [signOut, navigate]);
+  }, [batchesOpen, user]);
 
   /* ── Conditional returns AFTER all hooks ── */
   if (!user) return null;
 
   const path = location.pathname;
   
-  // Updated Whitelist: Removed '/test/' to hide navbar during exam
+  // Updated Whitelist: Now includes /rewards and /courses routes
   const isWhitelisted =
     path === '/study' ||
     path.startsWith('/study/') ||
@@ -139,9 +129,18 @@ export default function TabMobileNavbar() {
     path.startsWith('/dashboard/') ||
     path === '/profile' ||
     path.startsWith('/profile/') ||
-    path.startsWith('/learn/'); // Kept learn, as Header also hides there but users might want nav access
+    path.startsWith('/learn/') ||
+    path === '/rewards' ||          // Added Rewards
+    path.startsWith('/rewards/') ||
+    path === '/courses' ||          // Added Courses List
+    path.startsWith('/courses/');   // Added Course Details
 
   if (!isWhitelisted) return null;
+
+  const handleBatchClick = (slug: string) => {
+    setBatchesOpen(false);
+    navigate(`/learn/${slug}`);
+  };
 
   const items = [
     {
@@ -150,6 +149,21 @@ export default function TabMobileNavbar() {
       to: '/study',
       active: path === '/study' || path.startsWith('/study/'),
       icon: BookOpen,
+    },
+    {
+      key: 'courses',
+      label: 'Courses',
+      to: '/courses',
+      active: path === '/courses' || (path.startsWith('/courses/') && !path.startsWith('/learn/')),
+      icon: GraduationCap,
+    },
+    {
+      key: 'batches',
+      label: 'Batches',
+      to: '#',
+      active: false,
+      icon: School,
+      onClick: () => setBatchesOpen(true),
     },
     {
       key: 'dashboard',
@@ -181,7 +195,7 @@ export default function TabMobileNavbar() {
               type="button"
               onClick={item.onClick || (() => navigate(item.to))}
               className={cn(
-                'relative flex flex-col items-center gap-[3px] min-w-[60px] max-w-[80px] py-1 rounded-xl transition-all duration-200',
+                'relative flex flex-col items-center gap-[3px] min-w-[50px] max-w-[70px] py-1 rounded-xl transition-all duration-200',
                 item.active
                   ? 'text-primary'
                   : 'text-muted-foreground/60 active:text-muted-foreground',
@@ -191,7 +205,7 @@ export default function TabMobileNavbar() {
                 <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
               )}
               <item.icon
-                className="w-[22px] h-[22px] transition-all duration-200"
+                className="w-[20px] h-[20px] transition-all duration-200"
                 strokeWidth={item.active ? 2.2 : 1.5}
               />
               <span
@@ -205,15 +219,12 @@ export default function TabMobileNavbar() {
             </button>
           ))}
 
+          {/* Profile Button */}
           <button
             type="button"
-            onClick={handleAvatarClick}
-            onPointerDown={handlePointerDown}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerLeave}
-            onContextMenu={(e) => e.preventDefault()}
+            onClick={() => navigate('/profile')}
             className={cn(
-              'relative flex flex-col items-center gap-[3px] min-w-[60px] max-w-[80px] py-1 rounded-xl transition-all duration-200',
+              'relative flex flex-col items-center gap-[3px] min-w-[50px] max-w-[70px] py-1 rounded-xl transition-all duration-200',
               path === '/profile' || path.startsWith('/profile/')
                 ? 'text-primary'
                 : 'text-muted-foreground/60 active:text-muted-foreground',
@@ -255,38 +266,66 @@ export default function TabMobileNavbar() {
         </div>
       </nav>
 
-      {logoutConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setLogoutConfirm(false)} />
-          <div className="relative bg-card rounded-2xl border border-border p-5 w-full max-w-xs shadow-xl">
-            <div className="flex flex-col items-center text-center">
-              <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-3">
-                <LogOut className="w-5 h-5 text-destructive" />
+      {/* Batches Selection Popup */}
+      <Dialog open={batchesOpen} onOpenChange={setBatchesOpen}>
+        <DialogContent className="bg-card max-w-sm rounded-xl p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-border/40 bg-muted/20">
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <School className="w-5 h-5 text-primary" />
+              My Batches
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-2 max-h-[50vh] overflow-y-auto">
+            {loadingBatches ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               </div>
-              <h3 className="text-sm font-bold text-foreground mb-1">Sign out?</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-                You'll need to sign in again to access your courses and progress.
-              </p>
-              <div className="flex w-full gap-2">
-                <button
-                  type="button"
-                  onClick={() => setLogoutConfirm(false)}
-                  className="flex-1 h-10 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="flex-1 h-10 rounded-xl bg-destructive text-sm font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                >
-                  Sign out
-                </button>
+            ) : batches.length === 0 ? (
+              <div className="text-center py-8 px-4">
+                <School className="w-10 h-10 mx-auto text-muted-foreground/30 mb-2" />
+                <p className="text-muted-foreground text-sm">You are not enrolled in any batches yet.</p>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setBatchesOpen(false); navigate('/courses'); }}>
+                  Explore Courses
+                </Button>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-1">
+                {batches.map((batch) => (
+                  <button
+                    key={batch.id}
+                    onClick={() => handleBatchClick(batch.slug)}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-muted transition-colors text-left"
+                  >
+                    <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center overflow-hidden shrink-0">
+                      {batch.thumbnail_url ? (
+                        <img src={batch.thumbnail_url} alt={batch.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <BookOpen className="w-6 h-6 text-muted-foreground" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm truncate">{batch.title}</p>
+                      <p className="text-xs text-muted-foreground">Tap to open</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+          
+          {/* Footer inside popup to explore more courses */}
+          <div className="p-3 border-t border-border/40 bg-muted/10">
+            <Button 
+              variant="secondary" 
+              className="w-full gap-2" 
+              onClick={() => { setBatchesOpen(false); navigate('/courses'); }}
+            >
+              <Compass className="w-4 h-4" />
+              Explore All Courses
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <GlobalLeaderboardDialog open={lbOpen} onOpenChange={setLbOpen} />
     </>

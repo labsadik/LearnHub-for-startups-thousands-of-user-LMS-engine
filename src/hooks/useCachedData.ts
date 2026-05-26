@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
-import { fetchWithCache, invalidateCache } from '../lib/cache'; // Import invalidateCache
+import { useState, useEffect, useRef } from 'react';
+import { getCache, setCache, invalidateCache } from '../lib/cache';
 
-// This hook works for ANY data type
 export function useCachedData<T>(
-  key: string,                 // The cache key (e.g., "course:123")
-  fetcherFn: () => Promise<T>, // The function to get data from Supabase
-  deps: any[] = []             // Dependency array to refetch if needed
+  key: string,
+  fetcherFn: () => Promise<T>,
+  deps: any[] = [],
+  initialData: T | null = null // ✨ NEW: Safe default state (e.g., pass [] for arrays)
 ) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | null>(initialData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  const [nonce, setNonce] = useState(0); // Used to force a refresh without reloading the page
+  const [nonce, setNonce] = useState(0);
+
+  const cachedDataRef = useRef<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -19,37 +21,61 @@ export function useCachedData<T>(
       setLoading(true);
       setError(null);
       
+      let initialCacheLoaded = false;
+
+      // ==========================================
+      // 1. Try to get data from Redis Cache (FAST)
+      // ==========================================
       try {
-        // Call our cache utility
-        const result = await fetchWithCache(key, fetcherFn);
+        const cachedData = await getCache<T>(key);
+        if (isMounted && cachedData !== null && cachedData !== undefined) {
+          const cacheString = JSON.stringify(cachedData);
+          cachedDataRef.current = cacheString;
+          setData(cachedData);
+          setLoading(false); 
+          initialCacheLoaded = true;
+        }
+      } catch (e) {
+        // Cache read failed, proceed to network
+      }
+
+      // ==========================================
+      // 2. Always fetch from Database (REVALIDATE)
+      // ==========================================
+      try {
+        const freshData = await fetcherFn();
         
         if (isMounted) {
-          setData(result);
+          const freshString = JSON.stringify(freshData);
+          
+          if (freshString !== cachedDataRef.current) {
+            setData(freshData);
+            cachedDataRef.current = freshString;
+          }
+          
+          setCache(key, freshData).catch(err => console.error('Background cache set error', err));
+          
+          if (!initialCacheLoaded) {
+            setLoading(false);
+          }
         }
       } catch (err) {
         if (isMounted) {
           setError(err as Error);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
+          if (!initialCacheLoaded) {
+            setLoading(false);
+          }
         }
       }
     }
 
     loadData();
 
-    // Cleanup function to prevent setting state on unmounted component
     return () => { isMounted = false; };
-  }, [key, nonce, ...deps]); // Add 'nonce' to dependency array
+  }, [key, nonce, ...deps]);
 
-  // Helper function to force a refresh (ignore cache)
   const refetch = async () => {
-    // 1. Delete the entry from Redis
     await invalidateCache(key);
-    
-    // 2. Update nonce to trigger useEffect again
-    // This causes the hook to re-run, hitting the DB because the cache is now empty
     setNonce(n => n + 1);
   };
 

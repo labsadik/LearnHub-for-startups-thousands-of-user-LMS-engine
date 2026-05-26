@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react'; // Added useEffect
 import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Loader2, Trophy, Medal, Coins, FileCheck2, BookOpen, ChevronDown } from 'lucide-react';
@@ -25,8 +25,18 @@ const sortRows = (rows: Row[], key: SortKey) =>
   [...rows].sort((a, b) => {
     if (key === 'xp') return (b.xp - a.xp) || (b.coins - a.coins);
     if (key === 'coins') return (b.coins - a.coins) || (b.xp - a.xp);
-    return (b.tests - b.tests) || (b.xp - a.xp);
+    return (b.tests - a.tests) || (b.xp - a.xp);
   }).slice(0, 100);
+
+// Helper to normalize cache data (prevents "not iterable" crashes)
+function normalizeArray<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object' && 'data' in raw) {
+    const inner = (raw as Record<string, unknown>).data;
+    if (Array.isArray(inner)) return inner;
+  }
+  return [];
+}
 
 export default function GlobalLeaderboardDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   // UI State
@@ -36,7 +46,7 @@ export default function GlobalLeaderboardDialog({ open, onOpenChange }: { open: 
   const [courseOpen, setCourseOpen] = useState(false);
 
   // ─── CACHED: Fetch Courses ───
-  const { data: courses } = useCachedData(
+  const { data: rawCourses } = useCachedData(
     'global_leaderboard_courses',
     async () => {
       const { data } = await supabase
@@ -45,7 +55,8 @@ export default function GlobalLeaderboardDialog({ open, onOpenChange }: { open: 
         .eq('is_published', true);
       return data || [];
     },
-    [] // Only load once
+    [], // deps
+    []  // ✨ FIX: initialData = [] guarantees it's never null
   );
 
   // ─── CACHED: Fetch Leaderboard Rows ───
@@ -82,26 +93,31 @@ export default function GlobalLeaderboardDialog({ open, onOpenChange }: { open: 
     return Object.values(agg);
   }, [courseId]);
 
-  // FIX: Removed the 4th argument '{ revalidate: 60 }'. 
-  // The utility defaults to 60s, so this works as expected.
   const { data: rawRows, loading, refetch } = useCachedData(
     `global_leaderboard_rows:${courseId}`,
     fetchLeaderboardData,
-    [courseId]
+    [courseId],
+    [] // ✨ FIX: initialData = [] guarantees it's never null
   );
 
+  // ============================================================
+  // SAFE NORMALIZATION: Handle any Redis double-wrap just in case
+  // ============================================================
+  const courses = useMemo(() => normalizeArray<{ id: string; title: string; slug: string }>(rawCourses), [rawCourses]);
+  const safeRows = useMemo(() => normalizeArray<Row>(rawRows), [rawRows]);
+
   // Derived State
-  const rows = useMemo(() => sortRows(rawRows || [], sortKey), [rawRows, sortKey]);
+  const rows = useMemo(() => sortRows(safeRows, sortKey), [safeRows, sortKey]);
   const visibleRows = useMemo(() => {
     if (showAll || rows.length <= INITIAL_SHOW) return rows;
     return rows.slice(0, INITIAL_SHOW);
   }, [rows, showAll]);
 
-  const selectedCourse = courses?.find(c => c.id === courseId);
+  const selectedCourse = courses.find(c => c.id === courseId);
   const courseLabel = selectedCourse?.title || 'All courses';
 
-  // Reset view on filter change
-  useMemo(() => {
+  // ✨ FIX: Changed from useMemo to useEffect (you should never setState inside useMemo)
+  useEffect(() => {
     setShowAll(false);
   }, [courseId, sortKey]);
 
@@ -144,7 +160,7 @@ export default function GlobalLeaderboardDialog({ open, onOpenChange }: { open: 
                 All courses
               </Button>
               <div className="my-1 h-px bg-border" />
-              {courses?.map(c => (
+              {courses.map(c => (
                 <Button
                   key={c.id}
                   variant={courseId === c.id ? 'secondary' : 'ghost'}
